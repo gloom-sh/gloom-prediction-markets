@@ -188,6 +188,9 @@ export function createPredictionMarketsHeadless(
         type: "enum",
         values: PREDICTION_CATEGORY_OPTIONS.map((option) => ({ value: option.id })),
         defaultValue: "all",
+        // Also seeds the rendered pane, so `gloomberb shot PM --category macro`
+        // opens on that category rather than filtering only the report rows.
+        pluginState: { pluginId: "prediction-markets", key: "categoryId" },
       },
       {
         key: "tab",
@@ -199,6 +202,7 @@ export function createPredictionMarketsHeadless(
           { value: "new" },
         ],
         defaultValue: "top",
+        pluginState: { pluginId: "prediction-markets", key: "browseTab" },
       },
       {
         key: "limit",
