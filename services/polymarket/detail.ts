@@ -144,6 +144,13 @@ async function resolvePolymarketSummary(
   };
 }
 
+/**
+ * The CLOB rejects `startTs`+`endTs` pairs further apart than about 15 days
+ * ("interval is too long"), but honors `startTs` on its own. Longer windows
+ * send only the start and are trimmed here.
+ */
+const POLYMARKET_MAX_BOUNDED_WINDOW_SECONDS = 14 * 24 * 60 * 60;
+
 export async function loadPolymarketHistory(
   summary: PredictionMarketSummary,
   range: "1D" | "1W" | "1M" | "ALL",
@@ -166,23 +173,29 @@ export async function loadPolymarketHistory(
     range === "1D" ? 15 : range === "1W" ? 60 : range === "1M" ? 240 : 1440;
   const start = options.start ? Math.floor(options.start.getTime() / 1000) : null;
   const end = options.end ? Math.floor(options.end.getTime() / 1000) : null;
-  const bounded = start !== null && end !== null && Number.isFinite(start) && Number.isFinite(end) && start <= end;
+  const window = start !== null && end !== null && Number.isFinite(start) && Number.isFinite(end) && start <= end
+    ? { start, end }
+    : null;
 
   return await loadCachedPredictionResource(
     "history",
-    `${summary.key}:${range}${bounded ? `:${start}:${end}` : ""}`,
+    `${summary.key}:${range}${window ? `:${window.start}:${window.end}` : ""}`,
     async () => {
       const url = new URL("https://clob.polymarket.com/prices-history");
       url.searchParams.set("market", tokenId);
       url.searchParams.set("fidelity", String(fidelity));
-      if (bounded) {
-        url.searchParams.set("startTs", String(start));
-        url.searchParams.set("endTs", String(end));
+      if (window) {
+        url.searchParams.set("startTs", String(window.start));
+        if (window.end - window.start <= POLYMARKET_MAX_BOUNDED_WINDOW_SECONDS) {
+          url.searchParams.set("endTs", String(window.end));
+        }
       } else {
         url.searchParams.set("interval", interval);
       }
       const response = await fetchJson<PolymarketHistoryResponse>(url.toString(), options.signal);
       return (response.history ?? [])
+        // The API tacks the current price onto bounded answers, past `endTs`.
+        .filter((point) => !window || (point.t >= window.start && point.t <= window.end))
         .map((point) => ({
           date: new Date(point.t * 1000),
           close: point.p,
