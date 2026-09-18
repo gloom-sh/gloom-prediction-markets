@@ -179,6 +179,60 @@ test("polymarket pans request and cache their bounded history windows", async ()
   expect(panned.points[0]?.date.toISOString()).toBe("2026-02-01T00:00:01.000Z");
 });
 
+test("polymarket windows wider than the CLOB limit send only startTs and trim the answer", async () => {
+  const historyRequests: string[] = [];
+  const start = Date.parse("2024-12-08T00:00:00.000Z") / 1000;
+  const end = Date.parse("2026-02-08T00:00:00.000Z") / 1000;
+  setHttpFetchTransport(async (url) => {
+    if (url.endsWith("/events/event-1")) {
+      return json({
+        id: "event-1",
+        title: "Current event",
+        markets: [{
+          id: "market-1",
+          question: "Current market title",
+          active: true,
+          closed: false,
+          outcomes: ["Yes", "No"],
+          outcomePrices: ["0.7", "0.3"],
+          clobTokenIds: ["yes-token", "no-token"],
+        }],
+      });
+    }
+    if (url.includes("prices-history")) {
+      historyRequests.push(url);
+      if (new URL(url).searchParams.has("endTs")) {
+        return new Response(JSON.stringify({ error: "invalid filters: 'startTs' and 'endTs' interval is too long" }), { status: 400 });
+      }
+      // The CLOB appends the current price after the requested window.
+      return json({ history: [
+        { t: start - 86_400, p: 0.5 },
+        { t: start + 86_400, p: 0.6 },
+        { t: end - 86_400, p: 0.7 },
+        { t: end + 30 * 86_400, p: 0.15 },
+      ] });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  });
+
+  const resolved = await predictionChartSeriesCapability.provider.resolve({
+    seriesId: "polymarket/event-1/market-1",
+    viewport: {
+      range: "ALL",
+      resolution: "auto",
+      dateWindow: { start: "2024-12-08T00:00:00.000Z", end: "2026-02-08T00:00:00.000Z" },
+    },
+  });
+
+  expect(historyRequests).toHaveLength(1);
+  const params = new URL(historyRequests[0]!).searchParams;
+  expect(params.get("startTs")).toBe(String(start));
+  expect(params.get("endTs")).toBeNull();
+  expect(params.get("interval")).toBeNull();
+  expect(params.get("fidelity")).toBe("1440");
+  expect(resolved.points.map((point) => point.value)).toEqual([0.6, 0.7]);
+});
+
 test("aborting catalog search stops Polymarket event hydration without caching it", async () => {
   attachPredictionMarketsPersistence(new MemoryPersistence());
   let searchRequests = 0;
