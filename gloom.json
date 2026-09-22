@@ -1,7 +1,7 @@
 {
   "id": "prediction-markets",
   "name": "Prediction Markets",
-  "icon": "icon.svg",
+  "icon": "icon.webp",
   "tagline": "Polymarket and Kalshi event markets",
   "description": "Browse Polymarket and Kalshi event markets in one table: prices, spreads, volume, liquidity, and close dates, filtered by venue and category. Open a market for its order book, recent trades, outcome breakdown, price history, and resolution rules, with live book and trade updates from Polymarket. Also `gloomberb predictions [...]` on the command line, and a chart-series capability so a market's price history can be plotted beside anything else.",
   "categories": [
