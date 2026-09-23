@@ -2,10 +2,11 @@ import { Box, Text } from "gloomberb/ui";
 import { useCallback, useMemo, useRef } from "react";
 import {
   DataTableStackView,
-  InputSearchBar,
+  QueryBar,
   Spinner,
   Tabs,
   usePaneFooter,
+  usePaneHeaderTabs,
   useTableLoadMore,
   type DataTableKeyEvent,
   type DataTableRootKeyContext,
@@ -25,9 +26,22 @@ import type {
   PredictionCategoryId,
   PredictionColumnDef,
   PredictionListRow,
+  PredictionVenueScope,
 } from "./types";
 
 const PREDICTION_CELL_CACHE_SIZE = 12_000;
+const CATEGORY_TABS = PREDICTION_CATEGORY_OPTIONS.map((category) => ({
+  label: category.label,
+  value: category.id,
+}));
+const BROWSE_VIEW_OPTIONS = BROWSE_TABS.map((tab) => ({
+  label: tab.label,
+  value: tab.value,
+}));
+const VENUE_OPTIONS = VENUE_TABS.map((tab) => ({
+  label: tab.label,
+  value: tab.value,
+}));
 const RELATIVE_TIME_CELL_BUCKET_MS = 60_000;
 
 const predictionRowVersions = new WeakMap<object, number>();
@@ -121,68 +135,67 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
     controller.selectedRow,
   ]);
 
+  // The category strip only belongs to the browse list; the detail view has its own tabs.
+  const showCategoryTabs = CATEGORY_TABS.length > 1 && !controller.detailOpen;
+  const selectCategory = (value: string) =>
+    controller.actions.selectCategory(value as PredictionCategoryId);
+  const tabsInHeader = usePaneHeaderTabs(
+    showCategoryTabs
+      ? {
+          tabs: CATEGORY_TABS,
+          activeValue: controller.categoryId,
+          onSelect: selectCategory,
+          keyboardNavigation: false,
+        }
+      : null,
+  );
+
   const browseControls = (
     <>
-      {!controller.paneSettings.hideTabs ? (
-        <Tabs
-          tabs={VENUE_TABS.map((tab) => ({
-            label: tab.label,
-            value: tab.value,
-          }))}
-          activeValue={controller.effectiveVenueScope}
-          onSelect={controller.actions.setVenue}
-          compact
-        />
-      ) : null}
-
-      <Box flexDirection="row" height={1} paddingX={1} gap={2}>
-        <InputSearchBar
-          value={controller.searchQuery}
-          active={controller.searchFocused}
-          focused={focused}
-          width={Math.max(18, Math.floor(width * 0.32))}
-          inputRef={controller.searchInputRef}
-          focusToken={0}
-          placeholder="search markets"
-          glyph={controller.searchFocused ? "?" : "/"}
-          debounceMs={0}
-          onFocus={controller.actions.focusSearch}
-          onBlur={controller.actions.blurSearch}
-          onQueryChange={controller.actions.setSearchQuery}
-        />
-
-        <Box flexGrow={1}>
-          <Tabs
-            tabs={BROWSE_TABS.map((tab) => ({
-              label: tab.label,
-              value: tab.value,
-            }))}
-            activeValue={controller.browseTab}
-            onSelect={(value) =>
-              controller.actions.selectBrowseTab(value as PredictionBrowseTab)
-            }
-            compact
-          />
-        </Box>
-      </Box>
-
-      {PREDICTION_CATEGORY_OPTIONS.length > 1 ? (
+      {showCategoryTabs && !tabsInHeader ? (
         <Box height={1} paddingX={1}>
           <Tabs
-            tabs={PREDICTION_CATEGORY_OPTIONS.map((category) => ({
-              label: category.label,
-              value: category.id,
-            }))}
+            tabs={CATEGORY_TABS}
             activeValue={controller.categoryId}
-            onSelect={(value) =>
-              controller.actions.selectCategory(value as PredictionCategoryId)
-            }
+            onSelect={selectCategory}
             compact
             variant="bare"
           />
         </Box>
       ) : null}
 
+      <QueryBar
+        width={width}
+        search={{
+          value: controller.searchQuery,
+          onChange: controller.actions.setSearchQuery,
+          placeholder: "search markets",
+          focused,
+          active: controller.searchFocused,
+          onActiveChange: (active) =>
+            active ? controller.actions.focusSearch() : controller.actions.blurSearch(),
+          inputRef: controller.searchInputRef,
+          debounceMs: 0,
+        }}
+        filters={
+          // A pane locked to one venue in its settings has no venue choice.
+          controller.paneSettings.hideTabs
+            ? []
+            : [{
+                id: "venue",
+                label: "Venue",
+                value: controller.effectiveVenueScope,
+                defaultValue: "all",
+                options: VENUE_OPTIONS,
+                onChange: (value: PredictionVenueScope) => controller.actions.setVenue(value),
+              }]
+        }
+        view={{
+          value: controller.browseTab,
+          options: BROWSE_VIEW_OPTIONS,
+          onChange: (value: PredictionBrowseTab) => controller.actions.selectBrowseTab(value),
+        }}
+      />
     </>
   );
 
