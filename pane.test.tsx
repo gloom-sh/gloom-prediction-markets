@@ -320,14 +320,23 @@ describe("prediction markets pane interactions", () => {
     await emitKeypress(testSetup, { name: "up", sequence: "\u001b[A" });
     await flushFrames(testSetup);
 
-    let frame = testSetup.captureCharFrame();
+    const searchQuery = () =>
+      harnessStateRef.current?.paneState[TEST_PANE_ID]?.pluginState?.[
+        "prediction-markets"
+      ]?.searchQuery ?? "";
+
+    const frame = testSetup.captureCharFrame();
     expect(frame).toContain("/ search markets");
 
     await emitKeypress(testSetup, { name: "up", sequence: "\u001b[A" });
     await flushFrames(testSetup);
 
-    frame = testSetup.captureCharFrame();
-    expect(frame).toContain("? search markets");
+    // The search field owns the keyboard: typing lands in the query.
+    await act(async () => {
+      await testSetup!.mockInput.typeText("x");
+    });
+    await flushFrames(testSetup);
+    expect(searchQuery()).toBe("x");
 
     await emitKeypress(testSetup, {
       name: "down",
@@ -336,8 +345,12 @@ describe("prediction markets pane interactions", () => {
     });
     await flushFrames(testSetup);
 
-    frame = testSetup.captureCharFrame();
-    expect(frame).toContain("/ search markets");
+    // Back on the table, keys no longer reach the query.
+    await act(async () => {
+      await testSetup!.mockInput.typeText("j");
+    });
+    await flushFrames(testSetup);
+    expect(searchQuery()).toBe("x");
   });
 
   test("navigates the book and trades tables with arrow keys", async () => {
