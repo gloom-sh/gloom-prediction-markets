@@ -42,6 +42,15 @@ const BROWSE_VIEW_OPTIONS = BROWSE_TABS.map((tab, index) => ({
   value: tab.value,
   hint: String(index + 1),
 }));
+const BROWSE_VIEW_OPTIONS_UNKEYED = BROWSE_TABS.map((tab) => ({
+  label: tab.label,
+  value: tab.value,
+}));
+// The terminal prints each hint before its label ("1:Top"). Below this width
+// the search, venue and keyed view no longer fit on one row and the view
+// segments get cut, so a narrower terminal pane drops the hints; the desktop
+// shows them as tooltips at any width.
+const TERMINAL_VIEW_HINT_MIN_WIDTH = 90;
 const VENUE_OPTIONS = VENUE_TABS.map((tab) => ({
   label: tab.label,
   value: tab.value,
@@ -211,7 +220,9 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
         }
         view={{
           value: controller.browseTab,
-          options: BROWSE_VIEW_OPTIONS,
+          options: nativePaneChrome || width >= TERMINAL_VIEW_HINT_MIN_WIDTH
+            ? BROWSE_VIEW_OPTIONS
+            : BROWSE_VIEW_OPTIONS_UNKEYED,
           onChange: (value: PredictionBrowseTab) => controller.actions.selectBrowseTab(value),
         }}
       />

@@ -62,6 +62,9 @@ function PredictionRangeTabs({
       compact
       variant="bare"
       focused={focused}
+      // Four short ranges never need to scroll, and a scrolling strip takes the
+      // whole row and hides the price and move readout beside it.
+      scrollable={false}
     />
   );
 }
