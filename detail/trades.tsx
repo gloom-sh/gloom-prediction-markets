@@ -53,7 +53,6 @@ export function PredictionMarketTradesView({
       items={visibleTrades}
       sortColumnId={null}
       sortDirection="asc"
-      onHeaderClick={() => {}}
       getItemKey={(trade) => trade.id}
       onRowMouseDown={(_trade, index, event) => {
         event.preventDefault();

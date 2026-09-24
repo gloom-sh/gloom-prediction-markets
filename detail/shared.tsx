@@ -1,6 +1,3 @@
-import { Box } from "gloomberb/ui";
-import { colors } from "gloomberb/theme";
-import { ExternalLinkText } from "gloomberb/components";
 import type {
   PredictionListRow,
   PredictionMarketDetail,
@@ -28,22 +25,4 @@ export function resolvePredictionDetailTitle({
   if (!selectedSummary) return undefined;
   const summary = detail?.summary ?? selectedSummary;
   return selectedRow?.kind === "group" ? selectedRow.title : summary.title;
-}
-
-export function SummaryLink({
-  url,
-  maxLength,
-}: {
-  url: string;
-  maxLength: number;
-}) {
-  return (
-    <Box height={1}>
-      <ExternalLinkText
-        url={url}
-        label={truncatePredictionText(url, maxLength)}
-        color={colors.textBright}
-      />
-    </Box>
-  );
 }

@@ -202,19 +202,12 @@ describe("prediction markets pane interactions", () => {
     expect(frame.match(/Will the Fed cut rates\?/g) ?? []).toHaveLength(1);
     expect(frame).not.toContain("[/]search");
     expect(frame).not.toContain("[w]atch");
-    expect(frame).not.toContain("[1-4]browse");
+    expect(frame).toContain("[o]pen");
 
-    const metricsHeader = frame
-      .split("\n")
-      .find((line) =>
-        line.includes("YES") &&
-        line.includes("NO") &&
-        line.includes("24H VOL"),
-      );
-    expect(metricsHeader).toContain("TOTAL VOL");
-    expect(metricsHeader).toContain("OI");
-    expect(metricsHeader).toContain("SPREAD");
-    expect(metricsHeader).toContain("LAST");
+    // The stat band wraps onto a second row rather than dropping figures.
+    for (const label of ["Yes", "No", "24h vol", "Volume", "OI", "Spread", "Last", "Ends"]) {
+      expect(frame).toMatch(new RegExp(`(^|\\s)${label} +\\S`, "m"));
+    }
   });
 
   test("focuses the pane when a market row is clicked", async () => {

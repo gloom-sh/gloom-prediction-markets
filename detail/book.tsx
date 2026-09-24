@@ -104,7 +104,6 @@ export function PredictionMarketBookView({
       items={rows}
       sortColumnId={null}
       sortDirection="asc"
-      onHeaderClick={() => {}}
       getItemKey={(row) => row.id}
       onRowMouseDown={(_row, index, event) => {
         event.preventDefault();

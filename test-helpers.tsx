@@ -522,10 +522,9 @@ export function GroupedDetailHarness({
                   }],
                 }
           }
-          detailError={null}
           detailLoadCount={loading ? 1 : 0}
           detailTab={detailTab}
-          detailWidth={58}
+          width={60}
           focused
           height={24}
           historyRange="1M"

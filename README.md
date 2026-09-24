@@ -14,7 +14,7 @@ Open `PM` in the command bar, or `PM <query>` to land on a search. `PM polymarke
 
 ## Usage
 
-The browse tabs are top, ending soon, new, and watchlist; `h`/`l` or the arrow keys switch venue scope and category. Type to search; the arrow keys move between the search field and the table. Select a market for its detail stack: overview, order book, trades, outcomes, and rules. Polymarket books and trades update live over its websocket while a market is open; Kalshi is polled. `o` opens the market on its venue, `r` refreshes.
+Categories are the pane's tabs: `h`/`l` or the left and right arrows move between them, and with Shift they step through the venues. The query bar above the table holds the search (`/`), the venue filter, and the view: top, ending soon, new, or watchlist (`1` to `4`). `w` stars the selected market for the watchlist; the up and down arrows move between the search field and the table. Open a market for its detail: its figures across the top, then overview (outcomes, price history and its range, description), order book, trades, and rules, which `h`/`l` switch between. Polymarket books and trades update live over its websocket while a market is open; Kalshi is polled. `o` opens the market on its venue, `r` refreshes.
 
 `gloomberb predictions [venue] [category] [tab] [search...]` launches the app straight into the pane, for example `gloomberb predictions polymarket world ending iran`. `gloomberb fn prediction-markets` returns the same model headlessly.
 

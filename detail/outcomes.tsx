@@ -46,7 +46,6 @@ export function PredictionMarketOutcomesView({
           selection={{ kind: "id", selectedId: selectedMarketKey, getId: (market) => market.key, onChange: onSelectMarket }}
           sortColumnId={null}
           sortDirection="desc"
-          onHeaderClick={() => {}}
           rootHeight={tableHeight}
           horizontalPadding={0}
           virtualize={false}

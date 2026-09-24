@@ -41,7 +41,7 @@ describe("prediction markets detail views", () => {
     await flushFrames(testSetup);
 
     const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("Outcomes");
+    expect(frame).toContain("OUTCOMES");
     expect(frame).toContain("Above 4.25%");
     expect(frame).toContain("Above 4.50%");
     expect(frame).toContain("1M");
@@ -61,7 +61,7 @@ describe("prediction markets detail views", () => {
     await flushFrames(testSetup);
 
     const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("Outcomes");
+    expect(frame).toContain("OUTCOMES");
     expect(frame).toContain("Above 4.25%");
     expect(frame).toContain("Loading chart...");
     expect(frame).not.toContain("No chart history.");

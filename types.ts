@@ -123,6 +123,7 @@ export interface PredictionMarketDetail {
 
 export interface PredictionColumnDef extends ColumnConfig {
   description: string;
+  flexGrow?: number;
 }
 
 interface PredictionListRowBase {

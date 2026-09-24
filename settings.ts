@@ -125,8 +125,8 @@ export function buildPredictionMarketsPaneSettingsDef(
     },
     {
       key: "hideTabs",
-      label: "Hide Venue Tabs",
-      description: "Hide the top venue tabs and lock this pane to one scope.",
+      label: "Lock Venue",
+      description: "Hide the venue filter and lock this pane to one venue.",
       type: "toggle",
     },
   ];
@@ -147,7 +147,7 @@ export function buildPredictionMarketsPaneSettingsDef(
   });
   fields.push({
     key: "defaultBrowseTab",
-    label: "Default Browse Tab",
+    label: "Default View",
     type: "select",
     options: BROWSE_TAB_OPTIONS,
   });

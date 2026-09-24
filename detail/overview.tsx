@@ -1,7 +1,6 @@
 import { Box, Text } from "gloomberb/ui";
-import { TextAttributes } from "gloomberb/ui";
+import { SectionHeading } from "gloomberb/components";
 import { colors } from "gloomberb/theme";
-import { formatPercentRaw } from "gloomberb/utils";
 import { PredictionMarketChart } from "../chart";
 import type {
   PredictionHistoryRange,
@@ -10,7 +9,6 @@ import type {
   PredictionMarketSummary,
 } from "../types";
 import { PredictionMarketOutcomesView } from "./outcomes";
-import { SummaryLink } from "./shared";
 
 export function PredictionMarketOverviewView({
   detail,
@@ -22,6 +20,7 @@ export function PredictionMarketOverviewView({
   onHistoryRangeChange,
   onSelectMarket,
   selectedRow,
+  showRangeTabs,
   summary,
 }: {
   detail: PredictionMarketDetail | null;
@@ -33,6 +32,7 @@ export function PredictionMarketOverviewView({
   onHistoryRangeChange: (range: PredictionHistoryRange) => void;
   onSelectMarket: (marketKey: string) => void;
   selectedRow: PredictionListRow | null;
+  showRangeTabs: boolean;
   summary: PredictionMarketSummary;
 }) {
   const textWidth = Math.max(detailWidth, 12);
@@ -55,30 +55,18 @@ export function PredictionMarketOverviewView({
         focused={focused}
         range={historyRange}
         onRangeSelect={onHistoryRangeChange}
+        showRangeTabs={showRangeTabs}
       />
-      <SummaryLink
-        url={summary.url}
-        maxLength={Math.max(detailWidth - 8, 12)}
-      />
+      {/* The venue link is the footer's [o]pen, and the range move is in the
+          chart header, so the overview ends with the description. */}
       {summary.description && (
         <Box flexDirection="column" width={textWidth}>
-          <Text fg={colors.textBright} attributes={TextAttributes.BOLD}>
-            Description
-          </Text>
+          <SectionHeading title="Description" />
           <Text fg={colors.text} width={textWidth} wrapMode="word" wrapText>
             {summary.description}
           </Text>
         </Box>
       )}
-      <Box height={1}>
-        <Text fg={colors.textDim}>
-          {detail?.history &&
-          detail.history.length > 1 &&
-          summary.yesPrice != null
-            ? `Range move ${formatPercentRaw((((detail.history[detail.history.length - 1]?.close ?? summary.yesPrice) - (detail.history[0]?.close ?? summary.yesPrice)) / Math.max(detail.history[0]?.close ?? summary.yesPrice, 0.0001)) * 100)}`
-            : "No extended move data."}
-        </Text>
-      </Box>
     </Box>
   );
 }
