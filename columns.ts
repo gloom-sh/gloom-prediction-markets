@@ -11,7 +11,11 @@ export const PREDICTION_COLUMN_DEFS: PredictionColumnDef[] = [
   {
     id: "market",
     label: "MARKET",
-    width: 34,
+    width: 24,
+    // Takes the width the other columns leave, so a wide pane shows more of
+    // each question instead of spreading every column apart, and a narrow one
+    // scrolls sideways less.
+    flexGrow: 1,
     align: "left",
     description: "Event or primary question.",
   },
@@ -53,10 +57,8 @@ export const PREDICTION_COLUMN_DEFS: PredictionColumnDef[] = [
   },
   {
     id: "open_interest",
-    // One cell wider than the value needs: OI is right aligned and ENDS is left
-    // aligned, so without the slack the two headers read as one "OI ENDS" word.
     label: "OI",
-    width: 11,
+    width: 10,
     align: "right",
     description: "Open interest.",
   },

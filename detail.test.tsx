@@ -31,6 +31,8 @@ describe("prediction markets detail views", () => {
     const frame = testSetup.captureCharFrame();
     expect(frame).toContain("1M");
     expect(frame).not.toContain("TypeError");
+    // The range move sits beside the range tabs, which must not take the row.
+    expect(frame.split("\n")[0]).toContain("+6.67%");
   });
 
   test("renders grouped outcomes with their chart directly below", async () => {
@@ -41,7 +43,7 @@ describe("prediction markets detail views", () => {
     await flushFrames(testSetup);
 
     const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("Outcomes");
+    expect(frame).toContain("OUTCOMES");
     expect(frame).toContain("Above 4.25%");
     expect(frame).toContain("Above 4.50%");
     expect(frame).toContain("1M");
@@ -61,7 +63,7 @@ describe("prediction markets detail views", () => {
     await flushFrames(testSetup);
 
     const frame = testSetup.captureCharFrame();
-    expect(frame).toContain("Outcomes");
+    expect(frame).toContain("OUTCOMES");
     expect(frame).toContain("Above 4.25%");
     expect(frame).toContain("Loading chart...");
     expect(frame).not.toContain("No chart history.");

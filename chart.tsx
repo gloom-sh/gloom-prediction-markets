@@ -39,7 +39,10 @@ function toPricePoints(points: PredictionHistoryPoint[]): PricePoint[] {
   });
 }
 
-const RANGE_TABS = RANGES.map((entry) => ({ label: entry, value: entry }));
+export const PREDICTION_HISTORY_RANGE_OPTIONS = RANGES.map((entry) => ({
+  label: entry,
+  value: entry,
+}));
 
 /** Shared Tabs so the range picker keeps keyboard navigation, not just clicks. */
 function PredictionRangeTabs({
@@ -53,12 +56,15 @@ function PredictionRangeTabs({
 }) {
   return (
     <Tabs
-      tabs={RANGE_TABS}
+      tabs={PREDICTION_HISTORY_RANGE_OPTIONS}
       activeValue={activeRange}
       onSelect={(value) => onRangeSelect(value as PredictionHistoryRange)}
       compact
       variant="bare"
       focused={focused}
+      // Four short ranges never need to scroll, and a scrolling strip takes the
+      // whole row and hides the price and move readout beside it.
+      scrollable={false}
     />
   );
 }
@@ -71,6 +77,7 @@ export function PredictionMarketChart({
   focused = false,
   range,
   onRangeSelect,
+  showRangeTabs = true,
 }: {
   history: PredictionHistoryPoint[];
   width: number;
@@ -79,19 +86,23 @@ export function PredictionMarketChart({
   focused?: boolean;
   range: PredictionHistoryRange;
   onRangeSelect: (range: PredictionHistoryRange) => void;
+  /** Off where the range is picked in the detail's query bar instead. */
+  showRangeTabs?: boolean;
 }) {
   const pricePoints = useMemo(() => toPricePoints(history), [history]);
 
   if (pricePoints.length === 0) {
     return (
       <Box flexDirection="column" height={height}>
-        <Box flexDirection="row" height={1}>
-          <PredictionRangeTabs
-            activeRange={range}
-            focused={focused}
-            onRangeSelect={onRangeSelect}
-          />
-        </Box>
+        {showRangeTabs && (
+          <Box flexDirection="row" height={1}>
+            <PredictionRangeTabs
+              activeRange={range}
+              focused={focused}
+              onRangeSelect={onRangeSelect}
+            />
+          </Box>
+        )}
         <Box flexGrow={1} justifyContent="center">
           {loading ? (
             <Text fg={colors.textDim}>Loading chart...</Text>
@@ -124,11 +135,13 @@ export function PredictionMarketChart({
   return (
     <Box flexDirection="column" height={height}>
       <Box flexDirection="row" height={1}>
-        <PredictionRangeTabs
-          activeRange={range}
-          focused={focused}
-          onRangeSelect={onRangeSelect}
-        />
+        {showRangeTabs && (
+          <PredictionRangeTabs
+            activeRange={range}
+            focused={focused}
+            onRangeSelect={onRangeSelect}
+          />
+        )}
         <Box flexGrow={1} />
         <Text
           fg={

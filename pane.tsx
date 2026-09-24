@@ -1,4 +1,4 @@
-import { Box, Text } from "gloomberb/ui";
+import { Box, useUiCapabilities } from "gloomberb/ui";
 import { useCallback, useMemo, useRef } from "react";
 import {
   DataTableStackView,
@@ -7,6 +7,8 @@ import {
   Tabs,
   usePaneFooter,
   usePaneHeaderTabs,
+  usePaneNoticeFooter,
+  usePaneStatusLinkFooter,
   useTableLoadMore,
   type DataTableKeyEvent,
   type DataTableRootKeyContext,
@@ -34,10 +36,21 @@ const CATEGORY_TABS = PREDICTION_CATEGORY_OPTIONS.map((category) => ({
   label: category.label,
   value: category.id,
 }));
-const BROWSE_VIEW_OPTIONS = BROWSE_TABS.map((tab) => ({
+// 1-4 pick the view from the keyboard; the hint says so beside each label.
+const BROWSE_VIEW_OPTIONS = BROWSE_TABS.map((tab, index) => ({
+  label: tab.label,
+  value: tab.value,
+  hint: String(index + 1),
+}));
+const BROWSE_VIEW_OPTIONS_UNKEYED = BROWSE_TABS.map((tab) => ({
   label: tab.label,
   value: tab.value,
 }));
+// The terminal prints each hint before its label ("1:Top"). Below this width
+// the search, venue and keyed view no longer fit on one row and the view
+// segments get cut, so a narrower terminal pane drops the hints; the desktop
+// shows them as tooltips at any width.
+const TERMINAL_VIEW_HINT_MIN_WIDTH = 90;
 const VENUE_OPTIONS = VENUE_TABS.map((tab) => ({
   label: tab.label,
   value: tab.value,
@@ -72,6 +85,7 @@ function predictionCellVersion(
 
 export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
   const controller = usePredictionMarketsController({ focused });
+  const { nativePaneChrome } = useUiCapabilities();
   const cellCacheRef = useRef(
     createRowValueCache<string, ReturnType<typeof getPredictionColumnValue>>(
       PREDICTION_CELL_CACHE_SIZE,
@@ -87,10 +101,16 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
     }
     return keys;
   }, [controller.visibleRows, controller.watchlistSet]);
-  const catalogStatusColor =
+  // Every venue failing is the list's error; one venue failing while the other
+  // still fills the table is a data limitation behind the footer warning.
+  const catalogError =
     controller.catalogStatus?.tone === "danger"
-      ? colors.negative
-      : colors.borderFocused;
+      ? controller.catalogStatus.message
+      : null;
+  const catalogNotice =
+    controller.catalogStatus?.tone === "warning"
+      ? controller.catalogStatus.message
+      : null;
   const rowsLoading =
     controller.visibleRows.length === 0 &&
     (controller.catalogLoadCount > 0 || controller.searchLoading);
@@ -103,37 +123,45 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
     if (controller.detailOpen) return null;
     return {
       info: [
-        ...(controller.searchQuery.trim() ? [{ id: "search", parts: [{ text: `search: ${controller.searchQuery.trim()}`, tone: "value" as const }] }] : []),
         ...(controller.searchLoading ? [{ id: "search-loading", parts: [{ text: "searching", tone: "muted" as const }] }] : []),
-        ...(controller.catalogStatus ? [{
-          id: "catalog",
-          parts: [{ text: controller.catalogStatus.message, tone: controller.catalogStatus.tone === "danger" ? "warning" as const : "muted" as const, color: catalogStatusColor }],
-        }] : []),
+        ...(controller.catalogLoadingMore ? [{ id: "loading-more", parts: [{ text: "loading more", tone: "muted" as const }] }] : []),
+        ...(catalogError ? [{ id: "catalog", parts: [{ text: catalogError, tone: "warning" as const }] }] : []),
       ],
       hints: [
         { id: "search", key: "/", label: "search", onPress: controller.actions.focusSearch },
         { id: "watch", key: "w", label: "atch", onPress: controller.selectedRow ? () => controller.actions.toggleWatchlist(controller.selectedRow!) : undefined, disabled: !controller.selectedRow },
-        {
-          id: "browse",
-          key: "1-4",
-          label: "browse",
-          onPress: () => {
-            const index = BROWSE_TABS.findIndex((tab) => tab.value === controller.browseTab);
-            controller.actions.selectBrowseTab(BROWSE_TABS[(index + 1) % BROWSE_TABS.length]!.value as PredictionBrowseTab);
-          },
-        },
       ],
     };
   }, [
-    catalogStatusColor,
-    controller.browseTab,
-    controller.catalogStatus?.message,
-    controller.catalogStatus?.tone,
+    catalogError,
+    controller.catalogLoadingMore,
     controller.detailOpen,
     controller.searchLoading,
-    controller.searchQuery,
     controller.selectedRow,
   ]);
+  usePaneNoticeFooter({
+    registrationId: "prediction-markets-notices",
+    notices: catalogNotice ? [catalogNotice] : [],
+    focused,
+    enabled: !controller.detailOpen,
+  });
+
+  // The open market's venue page is [o]pen; a failed detail refresh keeps the
+  // cached detail on screen and says so here rather than as current data.
+  const detailVisible = controller.detailOpen && !!controller.selectedSummary;
+  const detailSummary = controller.detail?.summary ?? controller.selectedSummary;
+  usePaneStatusLinkFooter({
+    registrationId: "prediction-markets-detail",
+    focused: focused && detailVisible,
+    url: detailVisible ? detailSummary?.url : null,
+    loading: detailVisible && controller.detailLoadCount > 0 && !controller.detail,
+    error: detailVisible && controller.detailError
+      ? controller.detail
+        ? `Showing cached data: ${controller.detailError}`
+        : controller.detailError
+      : null,
+    showOpenHint: true,
+  });
 
   // The category strip only belongs to the browse list; the detail view has its own tabs.
   const showCategoryTabs = CATEGORY_TABS.length > 1 && !controller.detailOpen;
@@ -192,7 +220,9 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
         }
         view={{
           value: controller.browseTab,
-          options: BROWSE_VIEW_OPTIONS,
+          options: nativePaneChrome || width >= TERMINAL_VIEW_HINT_MIN_WIDTH
+            ? BROWSE_VIEW_OPTIONS
+            : BROWSE_VIEW_OPTIONS_UNKEYED,
           onChange: (value: PredictionBrowseTab) => controller.actions.selectBrowseTab(value),
         }}
       />
@@ -250,6 +280,8 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
 
   const detailContent =
     controller.selectedSummary && controller.selectedRow ? (
+      // No inset here: the desktop query bar and stat band run edge to edge and
+      // the detail pads its own body. Only the terminal counts the Back row.
       <Box
         flexDirection="column"
         flexGrow={1}
@@ -257,17 +289,14 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
         flexBasis={0}
         minHeight={0}
         width={width}
-        height={Math.max(height - 1, 1)}
-        paddingX={1}
+        height={nativePaneChrome ? undefined : Math.max(height - 1, 1)}
         overflow="hidden"
         backgroundColor={colors.panel}
       >
         <PredictionMarketDetailPane
           detail={controller.detail}
-          detailError={controller.detailError}
           detailLoadCount={controller.detailLoadCount}
           detailTab={controller.detailTab}
-          detailWidth={Math.max(width - 2, 24)}
           focused={focused && controller.detailOpen}
           height={Math.max(height - 1, 1)}
           historyRange={controller.historyRange}
@@ -277,6 +306,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
           scrollRef={controller.detailScrollRef}
           selectedRow={controller.selectedRow}
           selectedSummary={controller.selectedSummary}
+          width={width}
         />
       </Box>
     ) : (
@@ -331,8 +361,8 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
           </Box>
         ) : undefined
       }
-      emptyStateTitle="No markets matched."
-      emptyStateHint="Change the venue, browse tab, or search query."
+      emptyStateTitle={catalogError ? "Markets unavailable." : "No markets matched."}
+      emptyStateHint={catalogError ? undefined : "Change the venue, category, view, or search."}
     />
   );
 }
