@@ -26,6 +26,13 @@
     ],
     "capabilities": [
       "prediction-markets.series"
+    ],
+    "shortcuts": [
+      {
+        "code": "PM",
+        "name": "Prediction Markets",
+        "description": "Polymarket and Kalshi event markets with order books, trades and price history."
+      }
     ]
   },
   "minGloom": "0.15.0"
