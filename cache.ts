@@ -144,6 +144,8 @@ function sameSummaryForCatalog(
     sameNullableNumber(left.volume24h, right.volume24h) &&
     sameNullableNumber(left.totalVolume, right.totalVolume) &&
     sameNullableNumber(left.openInterest, right.openInterest) &&
+    sameNullableNumber(left.eventOpenInterest, right.eventOpenInterest) &&
+    sameNullableNumber(left.eventVolume24h, right.eventVolume24h) &&
     sameNullableNumber(left.liquidity, right.liquidity)
   );
 }

@@ -33,9 +33,7 @@ function dedupeStrings(values: Array<string | null | undefined>): string[] {
 }
 
 function buildPredictionGroupKey(summary: PredictionMarketSummary): string | null {
-  if (summary.venue === "polymarket" && summary.eventId) {
-    return `polymarket:event:${summary.eventId}`;
-  }
+  if (summary.eventId) return `${summary.venue}:event:${summary.eventId}`;
   if (summary.venue === "kalshi" && summary.eventTicker) {
     return `kalshi:event:${summary.eventTicker}`;
   }
@@ -53,6 +51,51 @@ function buildGroupSubtitle(
   return `${markets.length} targets`;
 }
 
+function groupedOpenInterest(markets: PredictionMarketSummary[]): number | null {
+  let total = 0;
+  let seen = false;
+  for (const market of markets) {
+    if (market.openInterest == null || !Number.isFinite(market.openInterest)) continue;
+    total += market.openInterest;
+    seen = true;
+  }
+  if (seen) return total;
+  const shared = markets.find((market) =>
+    market.eventOpenInterest != null && Number.isFinite(market.eventOpenInterest),
+  );
+  return shared?.eventOpenInterest ?? null;
+}
+
+function groupedVolume24h(markets: PredictionMarketSummary[]): number | null {
+  let total = 0;
+  let seen = false;
+  for (const market of markets) {
+    if (market.volume24h == null || !Number.isFinite(market.volume24h)) continue;
+    total += market.volume24h;
+    seen = true;
+  }
+  if (seen) return total;
+  const shared = markets.find((market) =>
+    market.eventVolume24h != null && Number.isFinite(market.eventVolume24h),
+  );
+  return shared?.eventVolume24h ?? null;
+}
+
+function sumReported(
+  markets: PredictionMarketSummary[],
+  read: (market: PredictionMarketSummary) => number | null | undefined,
+): number | null {
+  let total = 0;
+  let seen = false;
+  for (const market of markets) {
+    const value = read(market);
+    if (value == null || !Number.isFinite(value)) continue;
+    total += value;
+    seen = true;
+  }
+  return seen ? total : null;
+}
+
 function sortGroupMembers(
   markets: PredictionMarketSummary[],
 ): PredictionMarketSummary[] {
@@ -64,6 +107,56 @@ function sortGroupMembers(
     if (updatedDelta !== 0) return updatedDelta;
     return left.marketLabel.localeCompare(right.marketLabel);
   });
+}
+
+function buildChildRow(
+  summary: PredictionMarketSummary,
+  parentKey: string,
+): PredictionSingleListRow {
+  return {
+    ...buildSingleRow(summary),
+    title: summary.marketLabel || summary.title,
+    parentKey,
+    volume24h: summary.volume24h,
+  };
+}
+
+/** Enter on an event toggles its markets. Enter on a market opens it. */
+export function resolvePredictionListActivation(
+  row: Pick<PredictionListRow, "kind">,
+): "toggle-group" | "open-detail" {
+  return row.kind === "group" ? "toggle-group" : "open-detail";
+}
+
+export function togglePredictionGroupExpanded(
+  expandedKeys: ReadonlySet<string>,
+  groupKey: string,
+): Set<string> {
+  const next = new Set(expandedKeys);
+  if (next.has(groupKey)) next.delete(groupKey);
+  else next.add(groupKey);
+  return next;
+}
+
+/** Event rows stay collapsed until their key is in the set. Markets then follow that event. */
+export function flattenPredictionListRows(
+  rows: PredictionListRow[],
+  expandedKeys: ReadonlySet<string>,
+): PredictionListRow[] {
+  const flattened: PredictionListRow[] = [];
+  for (const row of rows) {
+    if (row.kind !== "group") {
+      flattened.push(row);
+      continue;
+    }
+    const expanded = expandedKeys.has(row.key);
+    flattened.push({ ...row, expanded });
+    if (!expanded) continue;
+    for (const market of row.markets) {
+      flattened.push(buildChildRow(market, row.key));
+    }
+  }
+  return flattened;
 }
 
 function buildSingleRow(summary: PredictionMarketSummary): PredictionSingleListRow {
@@ -91,7 +184,12 @@ function buildSingleRow(summary: PredictionMarketSummary): PredictionSingleListR
     noPrice: summary.noPrice,
     spread: summary.spread,
     lastTradePrice: summary.lastTradePrice,
-    volume24h: summary.volume24h,
+    volume24h:
+      summary.volume24h != null && Number.isFinite(summary.volume24h)
+        ? summary.volume24h
+        : summary.eventVolume24h != null && Number.isFinite(summary.eventVolume24h)
+          ? summary.eventVolume24h
+          : null,
     volume24hUnit: summary.volume24hUnit,
     totalVolume: summary.totalVolume,
     totalVolumeUnit: summary.totalVolumeUnit,
@@ -147,10 +245,7 @@ function buildGroupedRow(markets: PredictionMarketSummary[]): PredictionGroupedL
     focusYesPrice: focusMarket.yesPrice,
     markets: sortedMarkets,
     title: representative.eventLabel,
-    marketId:
-      representative.venue === "polymarket"
-        ? representative.eventId ?? representative.marketId
-        : representative.eventTicker ?? representative.marketId,
+    marketId: representative.eventId ?? representative.eventTicker ?? representative.marketId,
     marketLabel: representative.eventLabel,
     eventLabel: buildGroupSubtitle(sortedMarkets, focusMarket),
     category: representative.category,
@@ -162,15 +257,15 @@ function buildGroupedRow(markets: PredictionMarketSummary[]): PredictionGroupedL
     updatedAt: latestUpdatedAt,
     yesPrice: representative.yesPrice,
     noPrice: representative.noPrice,
-    spread: representative.spread,
+    spread: focusMarket.spread,
     lastTradePrice: representative.lastTradePrice,
-    volume24h: representative.volume24h,
+    volume24h: groupedVolume24h(sortedMarkets),
     volume24hUnit: representative.volume24hUnit,
-    totalVolume: representative.totalVolume,
+    totalVolume: sumReported(sortedMarkets, (market) => market.totalVolume),
     totalVolumeUnit: representative.totalVolumeUnit,
-    openInterest: representative.openInterest,
+    openInterest: groupedOpenInterest(sortedMarkets),
     openInterestUnit: representative.openInterestUnit,
-    liquidity: representative.liquidity,
+    liquidity: sumReported(sortedMarkets, (market) => market.liquidity),
     liquidityUnit: representative.liquidityUnit,
     searchText: [
       representative.eventLabel,
@@ -192,6 +287,15 @@ function buildGroupedRow(markets: PredictionMarketSummary[]): PredictionGroupedL
     spreadLow: minDefined(spreadValues),
     spreadHigh: maxDefined(spreadValues),
   };
+}
+
+export function withSavedWatchlistMarkets(
+  catalog: readonly PredictionMarketSummary[],
+  saved: Readonly<Record<string, PredictionMarketSummary>>,
+): PredictionMarketSummary[] {
+  const seen = new Set(catalog.map((market) => market.key));
+  const extra = Object.values(saved).filter((market) => !seen.has(market.key));
+  return extra.length === 0 ? [...catalog] : [...catalog, ...extra];
 }
 
 export function buildPredictionListRows(

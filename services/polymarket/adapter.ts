@@ -14,11 +14,7 @@ import {
   PREDICTION_CACHE_POLICIES,
 } from "../fetch";
 import {
-  loadPolymarketEvent,
-} from "./detail";
-import {
   normalizePolymarketCatalog,
-  reconcilePolymarketSearchEvents,
 } from "./normalize";
 import type {
   PolymarketEventRecord,
@@ -31,12 +27,55 @@ export { loadPolymarketDetail } from "./detail";
 const POLYMARKET_CATALOG_OFFSETS = [0, 200, 400];
 const POLYMARKET_CATEGORY_OFFSETS = [0, 200];
 const POLYMARKET_PAGE_SIZE = 200;
+const polymarketNextOffset = new Map<PredictionCategoryId, number>();
+
+interface PolymarketPageBatch {
+  events: PolymarketEventRecord[];
+  retainedOffsets: number[];
+}
+
+function emptyPolymarketPages(): PolymarketPageBatch {
+  return { events: [], retainedOffsets: [] };
+}
+
+function resumeAfterRetainedPages(
+  planned: readonly number[],
+  retained: readonly number[],
+  pageSize: number,
+): number | null {
+  if (planned.length === 0 || retained.length === 0) return null;
+  const retainedSet = new Set(retained);
+  let lastKept = -1;
+  for (const offset of planned) {
+    if (!retainedSet.has(offset)) break;
+    lastKept = offset;
+  }
+  if (lastKept < 0) return planned[0] ?? null;
+  return lastKept + pageSize;
+}
+
+function rememberPolymarketResume(
+  categoryId: PredictionCategoryId,
+  planned: readonly number[],
+  batches: readonly PolymarketPageBatch[],
+  pageSize: number,
+): void {
+  const resumes: number[] = [];
+  for (const batch of batches) {
+    const resume = resumeAfterRetainedPages(planned, batch.retainedOffsets, pageSize);
+    if (resume != null) resumes.push(resume);
+  }
+  if (resumes.length === 0) return;
+  polymarketNextOffset.set(categoryId, Math.min(...resumes));
+}
 
 export function nextPolymarketCatalogOffset(
   categoryId: PredictionCategoryId,
   searchQuery = "",
 ): number | null {
   if (searchQuery.trim()) return null;
+  const remembered = polymarketNextOffset.get(categoryId);
+  if (remembered != null) return remembered;
   const offsets = categoryId === "all" ? POLYMARKET_CATALOG_OFFSETS : POLYMARKET_CATEGORY_OFFSETS;
   return (offsets.at(-1) ?? 0) + POLYMARKET_PAGE_SIZE;
 }
@@ -69,7 +108,7 @@ async function loadPolymarketCatalogPages(
   tagSlug?: string,
   limit = 200,
   signal?: AbortSignal,
-): Promise<PolymarketEventRecord[]> {
+): Promise<PolymarketPageBatch> {
   const results = await Promise.allSettled(
     offsets.map((offset) =>
       fetchJson<PolymarketEventRecord[]>(
@@ -78,14 +117,41 @@ async function loadPolymarketCatalogPages(
       ),
     ),
   );
-  const pages = results.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : [],
-  );
-  if (pages.length > 0) return pages;
+  const events: PolymarketEventRecord[] = [];
+  const retainedOffsets: number[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    const offset = offsets[index];
+    if (result?.status !== "fulfilled" || offset == null) continue;
+    events.push(...result.value);
+    retainedOffsets.push(offset);
+  }
+  if (events.length > 0 || retainedOffsets.length > 0) return { events, retainedOffsets };
 
   const rejected = results.find((result) => result.status === "rejected");
   if (rejected?.status === "rejected") throw rejected.reason;
-  return [];
+  return emptyPolymarketPages();
+}
+
+/** One search request. The search payload is enough for the list. Detail still loads the event. */
+export async function loadPolymarketSearchHits(
+  searchQuery: string,
+  categoryId: PredictionCategoryId,
+  limit = 40,
+  signal?: AbortSignal,
+): Promise<PredictionMarketSummary[]> {
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+  const requestedLimit = Math.max(1, Math.min(40, limit));
+  const response = await fetchJson<PolymarketSearchResponse>(
+    buildPolymarketSearchUrl(normalizedQuery, requestedLimit),
+    signal,
+  );
+  return normalizePolymarketCatalog(
+    (response.events ?? []).slice(0, requestedLimit),
+    normalizedQuery,
+    categoryId,
+  ).slice(0, requestedLimit);
 }
 
 export async function loadPolymarketCatalog(
@@ -101,55 +167,42 @@ export async function loadPolymarketCatalog(
     `${buildPredictionCatalogResourceKey("polymarket", categoryId, normalizedQuery)}:${requestedLimit}`,
     async () => {
       if (normalizedQuery.length > 0) {
-        const response = await fetchJson<PolymarketSearchResponse>(
-          buildPolymarketSearchUrl(normalizedQuery, Math.min(40, pageLimit)),
-          options.signal,
-        );
-        const searchEvents = (response.events ?? []).slice(0, requestedLimit);
-        const hydratedEvents = (
-          await Promise.all(
-            [...new Set(searchEvents.map((event) => event.id).filter(Boolean))]
-              .map((eventId) => loadPolymarketEvent(eventId, options.signal)),
-          )
-        ).filter((event): event is PolymarketEventRecord => event != null);
-        const resolvedEvents = reconcilePolymarketSearchEvents(
-          searchEvents,
-          hydratedEvents,
-        );
-        return normalizePolymarketCatalog(
-          resolvedEvents,
-          normalizedQuery,
-          categoryId,
-        ).slice(0, requestedLimit);
+        return loadPolymarketSearchHits(normalizedQuery, categoryId, requestedLimit, options.signal);
       }
 
       if (categoryId !== "all") {
         const tagSlugs = getPolymarketCategoryTagSlugs(categoryId);
+        const planned = options.limit ? [0] : POLYMARKET_CATEGORY_OFFSETS;
         const categoryPages = await Promise.all(
           tagSlugs.map((tagSlug) =>
             loadPolymarketCatalogPages(
-              options.limit ? [0] : POLYMARKET_CATEGORY_OFFSETS,
+              planned,
               tagSlug,
               pageLimit,
               options.signal,
-            ).catch(() => []),
+            ).catch(() => emptyPolymarketPages()),
           ),
         );
         const categorized = normalizePolymarketCatalog(
-          categoryPages.flat(),
+          categoryPages.flatMap((page) => page.events),
           "",
           categoryId,
         );
-        if (categorized.length > 0) return categorized.slice(0, requestedLimit);
+        if (categorized.length > 0) {
+          rememberPolymarketResume(categoryId, planned, categoryPages, pageLimit);
+          return categorized;
+        }
       }
 
+      const planned = options.limit ? [0] : POLYMARKET_CATALOG_OFFSETS;
       const pages = await loadPolymarketCatalogPages(
-        options.limit ? [0] : POLYMARKET_CATALOG_OFFSETS,
+        planned,
         undefined,
         pageLimit,
         options.signal,
       );
-      return normalizePolymarketCatalog(pages, "", categoryId).slice(0, requestedLimit);
+      rememberPolymarketResume(categoryId, planned, [pages], pageLimit);
+      return normalizePolymarketCatalog(pages.events, "", categoryId);
     },
     PREDICTION_CACHE_POLICIES.catalog,
   );
@@ -166,9 +219,11 @@ export async function loadMorePolymarketCatalog(
   }
   const tagSlugs = categoryId === "all" ? [undefined] : getPolymarketCategoryTagSlugs(categoryId);
   const pages = await Promise.all(
-    tagSlugs.map((tagSlug) => loadPolymarketCatalogPages([offset], tagSlug, POLYMARKET_PAGE_SIZE, signal).catch(() => [])),
+    tagSlugs.map((tagSlug) =>
+      loadPolymarketCatalogPages([offset], tagSlug, POLYMARKET_PAGE_SIZE, signal).catch(() => emptyPolymarketPages()),
+    ),
   );
-  const raw = pages.flat();
+  const raw = pages.flatMap((page) => page.events);
   return {
     markets: normalizePolymarketCatalog(raw, "", categoryId),
     hasMore: raw.length >= POLYMARKET_PAGE_SIZE,

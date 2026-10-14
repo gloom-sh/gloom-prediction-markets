@@ -1,4 +1,4 @@
-import { Box, useUiCapabilities } from "gloomberb/ui";
+import { Box, TextAttributes, useUiCapabilities } from "gloomberb/ui";
 import { useCallback, useMemo, useRef } from "react";
 import {
   DataTableStackView,
@@ -9,25 +9,29 @@ import {
   usePaneHeaderTabs,
   usePaneNoticeFooter,
   usePaneStatusLinkFooter,
+  type PaneHint,
   useTableLoadMore,
   type DataTableKeyEvent,
   type DataTableRootKeyContext,
 } from "gloomberb/components";
 import { createRowValueCache } from "gloomberb/components";
+import { usePluginAppActions } from "gloomberb/react";
 import type { PaneProps } from "gloomberb/types/plugin";
 import { colors } from "gloomberb/theme";
 import { PREDICTION_CATEGORY_OPTIONS } from "./categories";
 import { usePredictionMarketsController } from "./controller";
 import { PredictionMarketDetailPane } from "./detail/pane";
 import { resolvePredictionDetailTitle } from "./detail/shared";
+import { matchSettlement } from "./settlement";
 import { getPredictionColumnValue } from "./metrics";
 import { BROWSE_TABS, VENUE_TABS } from "./navigation";
-import { isPlainArrowUp, stopSearchFocusNavigation } from "gloomberb/utils";
+import { formatRelativeAge, isPlainArrowUp, stopSearchFocusNavigation } from "gloomberb/utils";
 import type {
   PredictionBrowseTab,
   PredictionCategoryId,
   PredictionColumnDef,
   PredictionListRow,
+  PredictionTransportState,
   PredictionVenueScope,
 } from "./types";
 
@@ -36,7 +40,8 @@ const CATEGORY_TABS = PREDICTION_CATEGORY_OPTIONS.map((category) => ({
   label: category.label,
   value: category.id,
 }));
-// 1-4 pick the view from the keyboard; the hint says so beside each label.
+// 1-4 jump the view from anywhere in the list. Tab walks search, Venue, then
+// this view; Left and Right change the control that has the keyboard.
 const BROWSE_VIEW_OPTIONS = BROWSE_TABS.map((tab, index) => ({
   label: tab.label,
   value: tab.value,
@@ -57,6 +62,22 @@ const VENUE_OPTIONS = VENUE_TABS.map((tab) => ({
 }));
 const RELATIVE_TIME_CELL_BUCKET_MS = 60_000;
 
+const NO_FRESHNESS: ReturnType<typeof predictionFreshness> = [];
+
+function predictionFreshness(
+  transportState: PredictionTransportState,
+  lastRefreshAt: number | null,
+) {
+  const fresh = transportState === "live" || transportState === "polling" || transportState === "stale";
+  const age = typeof lastRefreshAt === "number" && Number.isFinite(lastRefreshAt)
+    ? formatRelativeAge(lastRefreshAt)
+    : null;
+  return [
+    ...(fresh ? [{ id: "transport", parts: [{ text: transportState }] }] : []),
+    ...(age ? [{ id: "age", parts: [{ text: age, tone: "muted" as const }] }] : []),
+  ];
+}
+
 const predictionRowVersions = new WeakMap<object, number>();
 let nextPredictionRowVersion = 1;
 
@@ -74,17 +95,20 @@ function predictionCellVersion(
   column: PredictionColumnDef,
   watchlisted: boolean,
   relativeTimeBucket: number,
+  flashing: boolean,
 ): string {
   return [
     predictionRowVersion(row),
     column.id,
     watchlisted ? 1 : 0,
     column.id === "ends" || column.id === "updated" ? relativeTimeBucket : 0,
+    flashing ? 1 : 0,
   ].join("|");
 }
 
 export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
   const controller = usePredictionMarketsController({ focused });
+  const { createPaneFromTemplate } = usePluginAppActions();
   const { nativePaneChrome } = useUiCapabilities();
   const cellCacheRef = useRef(
     createRowValueCache<string, ReturnType<typeof getPredictionColumnValue>>(
@@ -113,18 +137,30 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
       : null;
   const rowsLoading =
     controller.visibleRows.length === 0 &&
-    (controller.catalogLoadCount > 0 || controller.searchLoading);
+    (controller.catalogLoadCount > 0 || controller.searchLoading || controller.catalogLoadingMore);
+  const listInFlightLabel = controller.visibleRows.length === 0
+    ? null
+    : controller.searchLoading
+      ? "Searching markets..."
+      : controller.catalogLoadingMore
+        ? "Loading markets..."
+        : null;
+  const freshness = useMemo(
+    () => predictionFreshness(controller.transportState, controller.lastRefreshAt),
+    [controller.lastRefreshAt, controller.transportState],
+  );
   const detailTitle = resolvePredictionDetailTitle({
     detail: controller.detail,
     selectedRow: controller.selectedRow,
     selectedSummary: controller.selectedSummary,
   });
+  const listFreshness = freshness.filter((segment) => segment.id !== "transport");
   usePaneFooter("prediction-markets", () => {
     if (controller.detailOpen) return null;
     return {
       info: [
-        ...(controller.searchLoading ? [{ id: "search-loading", parts: [{ text: "searching", tone: "muted" as const }] }] : []),
-        ...(controller.catalogLoadingMore ? [{ id: "loading-more", parts: [{ text: "loading more", tone: "muted" as const }] }] : []),
+        ...listFreshness,
+        ...(!controller.searchLoading && controller.searchScanNote ? [{ id: "search-stopped", parts: [{ text: controller.searchScanNote, tone: "muted" as const }] }] : []),
         ...(catalogError ? [{ id: "catalog", parts: [{ text: catalogError, tone: "warning" as const }] }] : []),
       ],
       hints: [
@@ -134,10 +170,13 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
     };
   }, [
     catalogError,
-    controller.catalogLoadingMore,
     controller.detailOpen,
+    listFreshness,
+    controller.lastRefreshAt,
     controller.searchLoading,
+    controller.searchScanNote,
     controller.selectedRow,
+    controller.transportState,
   ]);
   usePaneNoticeFooter({
     registrationId: "prediction-markets-notices",
@@ -150,21 +189,59 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
   // cached detail on screen and says so here rather than as current data.
   const detailVisible = controller.detailOpen && !!controller.selectedSummary;
   const detailSummary = controller.detail?.summary ?? controller.selectedSummary;
+  const settlementHints = useMemo((): PaneHint[] => {
+    if (!detailVisible || !detailSummary) return [];
+    const match = matchSettlement({
+      seriesTicker: detailSummary.seriesTicker,
+      eventTicker: detailSummary.eventTicker,
+      title: detailSummary.title,
+      resolutionSource: detailSummary.resolutionSource,
+      category: detailSummary.category,
+    });
+    if (!match) return [];
+    const hints: PaneHint[] = [];
+    if (match.chart) {
+      const chart = match.chart;
+      hints.push({
+        id: "settlement-graph",
+        key: "g",
+        label: "raph",
+        onPress: () => createPaneFromTemplate("chart-composer-pane", { arg: chart }),
+      });
+    }
+    if (match.catalog) {
+      const catalog = match.catalog;
+      hints.push({
+        id: "settlement-table",
+        key: "t",
+        label: "able",
+        onPress: () => createPaneFromTemplate("data-catalog-pane", { arg: catalog }),
+      });
+    }
+    return hints;
+  }, [createPaneFromTemplate, detailSummary, detailVisible]);
+
   usePaneStatusLinkFooter({
     registrationId: "prediction-markets-detail",
     focused: focused && detailVisible,
     url: detailVisible ? detailSummary?.url : null,
+    hints: settlementHints,
     loading: detailVisible && controller.detailLoadCount > 0 && !controller.detail,
     error: detailVisible && controller.detailError
       ? controller.detail
         ? `Showing cached data: ${controller.detailError}`
         : controller.detailError
       : null,
+    info: detailVisible ? freshness : NO_FRESHNESS,
     showOpenHint: true,
   });
 
   // The category strip only belongs to the browse list; the detail view has its own tabs.
   const showCategoryTabs = CATEGORY_TABS.length > 1 && !controller.detailOpen;
+  // Categories keep h, l, and the arrows while the list has the keyboard.
+  // The strip does not bind those keys itself: Venue and the view borrow the
+  // arrows, and a second binding would step twice.
+  const categoryStripFocused = focused && !controller.detailOpen && controller.queryTarget == null;
   const selectCategory = (value: string) =>
     controller.actions.selectCategory(value as PredictionCategoryId);
   const tabsInHeader = usePaneHeaderTabs(
@@ -173,6 +250,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
           tabs: CATEGORY_TABS,
           activeValue: controller.categoryId,
           onSelect: selectCategory,
+          focused: categoryStripFocused,
           keyboardNavigation: false,
         }
       : null,
@@ -188,6 +266,8 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
             onSelect={selectCategory}
             compact
             variant="bare"
+            focused={categoryStripFocused}
+            keyboardNavigation={false}
           />
         </Box>
       ) : null}
@@ -216,6 +296,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
                 defaultValue: "all",
                 options: VENUE_OPTIONS,
                 onChange: (value: PredictionVenueScope) => controller.actions.setVenue(value),
+                controlRef: controller.venueControlRef,
               }]
         }
         view={{
@@ -224,19 +305,23 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
             ? BROWSE_VIEW_OPTIONS
             : BROWSE_VIEW_OPTIONS_UNKEYED,
           onChange: (value: PredictionBrowseTab) => controller.actions.selectBrowseTab(value),
+          focused: controller.queryTarget === "view",
+          shortcutScope: "prediction-markets-view",
         }}
       />
     </>
   );
 
+  const flashingMarketKeys = controller.flashingMarketKeys;
   const renderCell = useCallback((
     row: PredictionListRow,
     column: PredictionColumnDef,
   ) => {
     const watchlisted = watchlistedRowKeys.has(row.key);
+    const flashing = column.id === "yes" && flashingMarketKeys.has(row.focusMarketKey);
     const value = cellCacheRef.current.get(
       `${row.key}:${column.id}`,
-      predictionCellVersion(row, column, watchlisted, relativeTimeBucket),
+      predictionCellVersion(row, column, watchlisted, relativeTimeBucket, flashing),
       () => getPredictionColumnValue(column, row, watchlisted),
     );
     if (column.id === "watch") {
@@ -253,9 +338,11 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
     return {
       text: value.text,
       color: value.color,
+      ...(flashing ? { attributes: TextAttributes.DIM } : {}),
     };
   }, [
     controller.actions.toggleWatchlist,
+    flashingMarketKeys,
     relativeTimeBucket,
     watchlistedRowKeys,
   ]);
@@ -295,6 +382,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
       >
         <PredictionMarketDetailPane
           detail={controller.detail}
+          detailError={controller.detailError}
           detailLoadCount={controller.detailLoadCount}
           detailTab={controller.detailTab}
           focused={focused && controller.detailOpen}
@@ -304,6 +392,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
           onHistoryRangeChange={controller.actions.setHistoryRange}
           onSelectMarket={controller.actions.selectMarket}
           scrollRef={controller.detailScrollRef}
+          eventMarkets={controller.selectedEventMarkets}
           selectedRow={controller.selectedRow}
           selectedSummary={controller.selectedSummary}
           width={width}
@@ -321,7 +410,16 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
       onBack={controller.actions.closeDetail}
       detailContent={detailContent}
       detailTitle={detailTitle}
-      rootBefore={browseControls}
+      rootBefore={
+        <>
+          {browseControls}
+          {listInFlightLabel ? (
+            <Box width="100%" paddingX={1}>
+              <Spinner label={listInFlightLabel} />
+            </Box>
+          ) : null}
+        </>
+      }
       rootWidth={width}
       rootHeight={height}
       rootBackgroundColor={colors.panel}
@@ -332,6 +430,7 @@ export function PredictionMarketsPane({ focused, width, height }: PaneProps) {
         onChange: (key, _row, _index, reason) =>
           controller.actions.setBrowseSelection(key, {
             debounceDetail: reason === "keyboard",
+            pointer: reason === "pointer",
           }),
       }}
       onActivate={(row) =>

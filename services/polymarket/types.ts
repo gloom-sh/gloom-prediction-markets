@@ -25,6 +25,8 @@ export interface PolymarketMarketRecord {
   createdAt?: string;
   volume24hr?: number;
   volumeNum?: number;
+  /** Present when the venue reports this contract's own open interest. */
+  openInterest?: number;
   liquidityNum?: number;
   spread?: number;
   bestBid?: number | null;

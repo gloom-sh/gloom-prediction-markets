@@ -1,6 +1,6 @@
 # Prediction Markets for Gloom
 
-Polymarket and Kalshi event markets in one table: price, spread, 24h volume, liquidity, and close date, filtered by venue and category. Open a market for its order book, recent trades, outcome breakdown, price history, and resolution rules.
+Event markets from Polymarket, Kalshi, Gemini, Limitless, Crypto.com, Polymarket US, and Pascal in one table: price, spread, 24h volume, liquidity, and close date, filtered by venue and category. Open a market for its order book, recent trades, outcome breakdown, price history, and resolution rules.
 
 ## Install
 
@@ -14,7 +14,7 @@ Open `PM` in the command bar, or `PM <query>` to land on a search. `PM polymarke
 
 ## Usage
 
-Categories are the pane's tabs: `h`/`l` or the left and right arrows move between them, and with Shift they step through the venues. The query bar above the table holds the search (`/`), the venue filter, and the view: top, ending soon, new, or watchlist (`1` to `4`). `w` stars the selected market for the watchlist; the up and down arrows move between the search field and the table. Open a market for its detail: its figures across the top, then overview (outcomes, price history and its range, description), order book, trades, and rules, which `h`/`l` switch between. Polymarket books and trades update live over its websocket while a market is open; Kalshi is polled. `o` opens the market on its venue, `r` refreshes.
+Categories are the pane's tabs: `h`/`l` or the left and right arrows move between them, and with Shift they step through the venues. The query bar above the table holds the search (`/`), the venue filter (All venues is Polymarket and Kalshi; the other venues are picked one at a time), and the view: top, ending soon, new, or watchlist (`1` to `4`). `w` stars the selected market for the watchlist; the up and down arrows move between the search field and the table. Open a market for its detail: its figures across the top, then overview (outcomes, price history and its range, description), order book, trades, and rules, which `h`/`l` switch between. Polymarket books and trades update live over its websocket while a market is open; Kalshi is polled. `o` opens the market on its venue, `r` refreshes.
 
 `gloomberb predictions [venue] [category] [tab] [search...]` launches the app straight into the pane, for example `gloomberb predictions polymarket world ending iran`. `gloomberb fn prediction-markets` returns the same model headlessly.
 
@@ -22,7 +22,7 @@ The plugin also registers a `prediction-markets.series` chart-series capability,
 
 ## Data
 
-Polymarket's public Gamma, CLOB, and data APIs, and Kalshi's public trade API. Unofficial and unauthenticated; if either venue changes its shape the pane breaks until this plugin is updated, which is one reason it is a plugin rather than part of the core app. Nothing goes through Gloom Cloud. Responses are cached in plugin persistence so the pane has something to show before the first fetch.
+Polymarket's public Gamma, CLOB, and data APIs, Kalshi's public trade API, and the public market endpoints of Gemini, Limitless, Crypto.com, Polymarket US, and Pascal. Unofficial and unauthenticated; if a venue changes its shape the pane breaks until this plugin is updated, which is one reason it is a plugin rather than part of the core app. Nothing goes through Gloom Cloud. Responses are cached in plugin persistence so the pane has something to show before the first fetch.
 
 ## Development
 

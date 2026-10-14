@@ -3,14 +3,17 @@ import type {
   PredictionDetailTab,
   PredictionVenueScope,
 } from "./types";
+import { PREDICTION_VENUE_LABELS, PREDICTION_VENUE_ORDER } from "./venues";
 
 export const VENUE_TABS: ReadonlyArray<{
   label: string;
   value: PredictionVenueScope;
 }> = [
   { label: "All venues", value: "all" },
-  { label: "Polymarket", value: "polymarket" },
-  { label: "Kalshi", value: "kalshi" },
+  ...PREDICTION_VENUE_ORDER.map((venue) => ({
+    label: PREDICTION_VENUE_LABELS[venue],
+    value: venue,
+  })),
 ];
 
 export const BROWSE_TABS: ReadonlyArray<{
@@ -36,8 +39,8 @@ export const DETAIL_TABS: ReadonlyArray<{
 export function parsePredictionVenueScope(
   value: string | undefined,
 ): PredictionVenueScope | null {
-  if (value === "all" || value === "polymarket" || value === "kalshi") {
-    return value;
+  if (value && (value === "all" || value in PREDICTION_VENUE_LABELS)) {
+    return value as PredictionVenueScope;
   }
   return null;
 }
@@ -61,6 +64,17 @@ export function parsePredictionSearchShortcut(query: string): {
     };
   }
   return { venueScope: "all", searchQuery: trimmed };
+}
+
+export function getAdjacentPredictionBrowseTab(
+  current: PredictionBrowseTab,
+  direction: "previous" | "next",
+): PredictionBrowseTab {
+  const index = BROWSE_TABS.findIndex((tab) => tab.value === current);
+  const safeIndex = index >= 0 ? index : 0;
+  const offset = direction === "previous" ? -1 : 1;
+  const nextIndex = (safeIndex + offset + BROWSE_TABS.length) % BROWSE_TABS.length;
+  return BROWSE_TABS[nextIndex]?.value ?? current;
 }
 
 export function getAdjacentPredictionVenueScope(

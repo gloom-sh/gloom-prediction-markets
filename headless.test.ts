@@ -101,6 +101,16 @@ describe("prediction markets headless", () => {
     expect(result.metadata).toMatchObject({ total: 2, returned: 1, truncated: true });
   });
 
+  test("a venue the report does not cover reaches neither Polymarket nor Kalshi", async () => {
+    const seen: string[] = [];
+    const definition = createPredictionMarketsHeadless(dependencies(seen));
+
+    const result = await definition.load(args(null, { venue: "gemini" }), context);
+
+    expect(seen).toEqual([]);
+    expect(result.rows).toEqual([]);
+  });
+
   test("uses the shortcut venue prefix without querying the other venue", async () => {
     const seen: string[] = [];
     const definition = createPredictionMarketsHeadless(dependencies(seen));

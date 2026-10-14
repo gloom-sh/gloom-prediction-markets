@@ -346,6 +346,54 @@ describe("prediction markets pane interactions", () => {
     expect(searchQuery()).toBe("x");
   });
 
+  test("walks categories, venue, and the view from the keyboard", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+
+    const slice = () =>
+      harnessStateRef.current?.paneState[TEST_PANE_ID]?.pluginState?.[
+        "prediction-markets"
+      ] as { categoryId?: string; venueScope?: string; browseTab?: string } | undefined;
+
+    await emitKeypress(testSetup, { name: "right", sequence: "\u001b[C" });
+    await flushFrames(testSetup);
+    expect(slice()?.categoryId).toBe("politics");
+
+    await emitKeypress(testSetup, { name: "right", sequence: "\u001b[C", repeated: true });
+    await flushFrames(testSetup);
+    expect(slice()?.categoryId).toBe("world");
+
+    await emitKeypress(testSetup, { name: "tab", sequence: "\t" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "tab", sequence: "\t" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "right", sequence: "\u001b[C" });
+    await flushFrames(testSetup);
+    expect(slice()?.venueScope).toBe("polymarket");
+    expect(slice()?.categoryId).toBe("world");
+
+    await emitKeypress(testSetup, { name: "tab", sequence: "\t" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "right", sequence: "\u001b[C" });
+    await flushFrames(testSetup);
+    expect(slice()?.browseTab).toBe("ending");
+    expect(slice()?.categoryId).toBe("world");
+
+    await emitKeypress(testSetup, { name: "l", sequence: "l" });
+    await flushFrames(testSetup);
+    expect(slice()?.categoryId).toBe("macro");
+    expect(slice()?.browseTab).toBe("ending");
+
+    await emitKeypress(testSetup, { name: "escape", sequence: "\u001b" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "right", sequence: "\u001b[C" });
+    await flushFrames(testSetup);
+    expect(slice()?.categoryId).toBe("crypto");
+    expect(slice()?.browseTab).toBe("ending");
+    expect(slice()?.venueScope).toBe("polymarket");
+  });
+
   test("navigates the book and trades tables with arrow keys", async () => {
     installPredictionMarketMocks();
 
@@ -541,6 +589,11 @@ describe("prediction markets pane interactions", () => {
 
     await emitKeypress(testSetup, { name: "j", sequence: "j" });
     await flushFrames(testSetup);
+    // Enter on the event expands it. Enter on a contract opens that contract.
+    await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "down", sequence: "\u001b[B" });
+    await flushFrames(testSetup);
     await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
     await flushFrames(testSetup);
     await emitKeypress(testSetup, { name: "down", sequence: "\u001b[B" });
@@ -565,4 +618,232 @@ describe("prediction markets pane interactions", () => {
     ).toBe("kalshi:KXFED-27APR-T4.50");
   });
 
+  test("ignores a repeated watch toggle and still repeats j", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+
+    await emitKeypress(testSetup, { name: "j", sequence: "j" });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "w", sequence: "w" });
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).toContain("★");
+
+    await pressRepeat("w", "w");
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).toContain("★");
+
+    const before = pluginSlice()?.selectedRowKey;
+    await pressRepeat("k", "k");
+    await act(async () => {
+      await Bun.sleep(800);
+    });
+    await flushFrames(testSetup);
+    expect(pluginSlice()?.selectedRowKey).not.toBe(before);
+    expect(testSetup.captureCharFrame()).toContain("★");
+  });
+
+  test("arrow down does not take the detail tabs, and enter hands h and l to the range", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "j", sequence: "j" });
+    await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).toContain("Overview");
+    expect(pluginSlice()?.historyRange ?? "1M").toBe("1M");
+
+    await emitKeypress(testSetup, { name: "down", sequence: "\u001b[B" });
+    await emitKeypress(testSetup, { name: "l", sequence: "l" });
+    await flushFrames(testSetup);
+    expect(pluginSlice()?.detailTab).toBe("book");
+    expect(pluginSlice()?.historyRange ?? "1M").toBe("1M");
+  });
+
+  test("enter then l changes the chart range without leaving overview", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "j", sequence: "j" });
+    await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).toContain("Overview");
+
+    await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
+    await emitKeypress(testSetup, { name: "l", sequence: "l" });
+    await flushFrames(testSetup);
+    expect(pluginSlice()?.historyRange).toBe("ALL");
+    expect(pluginSlice()?.detailTab ?? "overview").toBe("overview");
+  });
+
+  test("uses the body spinner while a search is in flight", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).toContain("Will inflation fall?");
+
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    globalThis.fetch = (async () => {
+      await pending;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await emitKeypress(testSetup, { name: "/", sequence: "/" });
+      await flushFrames(testSetup);
+      await act(async () => {
+        await testSetup!.mockInput.typeText("inflation");
+      });
+      let frame = "";
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await act(async () => {
+          await Bun.sleep(100);
+        });
+        await flushFrames(testSetup);
+        frame = testSetup.captureCharFrame();
+        if (frame.includes("Searching markets...")) break;
+      }
+      expect(frame).toContain("Searching markets...");
+      expect(frame).not.toContain("searching for more");
+      expect(frame).not.toContain("loading more");
+    } finally {
+      release?.();
+    }
+  });
+
+  test("shows polling and the refresh age on the detail and list footers", async () => {
+    installPredictionMarketMocks();
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+    expect(testSetup.captureCharFrame()).not.toContain("polling");
+
+    const lines = testSetup.captureCharFrame().split("\n");
+    const kalshiRow = lines.findIndex((line) => line.includes("Will the Fed cut rates?"));
+    const kalshiCol = lines[kalshiRow]?.indexOf("Will the Fed cut rates?") ?? -1;
+    await act(async () => {
+      await testSetup!.mockMouse.click(kalshiCol + 1, kalshiRow);
+      await testSetup!.renderOnce();
+    });
+    await act(async () => {
+      await testSetup!.mockMouse.click(kalshiCol + 1, kalshiRow);
+      await testSetup!.renderOnce();
+    });
+    await flushFrames(testSetup, 8);
+    let frame = testSetup.captureCharFrame();
+    expect(frame).toContain("polling");
+    expect(frame).toMatch(/polling (just now|~\dm)/);
+
+    await emitKeypress(testSetup, { name: "escape", sequence: "\u001b" });
+    await flushFrames(testSetup);
+    frame = testSetup.captureCharFrame();
+    expect(frame).toMatch(/just now|~\dm/);
+    expect(frame).not.toContain("polling");
+  });
+
+  test("keeps detail open and loads a sibling that is not a list row", async () => {
+    installPredictionMarketMocks();
+    const urls: string[] = [];
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("gamma-api.polymarket.com/events/event-1")) {
+        return new Response(JSON.stringify({
+          id: "event-1",
+          title: "US inflation",
+          description: "CPI event",
+          resolutionSource: "BLS",
+          openInterest: 1200000,
+          tags: [{ label: "Macro", slug: "economy" }],
+          markets: [
+            {
+              id: "pm-1",
+              question: "Will inflation fall?",
+              conditionId: "cond-1",
+              slug: "inflation-fall",
+              description: "Inflation market",
+              endDate: "2026-05-01T12:00:00Z",
+              outcomes: "[\"Yes\",\"No\"]",
+              outcomePrices: "[\"0.62\",\"0.38\"]",
+              clobTokenIds: "[\"yes-1\",\"no-1\"]",
+              active: true,
+              closed: false,
+            },
+            {
+              id: "pm-2",
+              question: "Will core CPI fall?",
+              groupItemTitle: "Core CPI",
+              conditionId: "cond-2",
+              slug: "core-cpi",
+              description: "Core inflation",
+              endDate: "2026-05-01T12:00:00Z",
+              outcomes: "[\"Yes\",\"No\"]",
+              outcomePrices: "[\"0.41\",\"0.59\"]",
+              clobTokenIds: "[\"yes-2\",\"no-2\"]",
+              active: true,
+              closed: false,
+            },
+          ],
+        }), { status: 200 });
+      }
+      if (url.includes("token_id=yes-2") || url.includes("token_id=no-2")) {
+        return new Response(JSON.stringify({
+          bids: [{ price: "0.40", size: "10" }],
+          asks: [{ price: "0.42", size: "12" }],
+          last_trade_price: "0.41",
+        }), { status: 200 });
+      }
+      return baseFetch(input, init);
+    }) as typeof fetch;
+
+    testSetup = await testRender(<Harness />, { width: 120, height: 34 });
+    await flushFrames(testSetup);
+    await emitKeypress(testSetup, { name: "enter", sequence: "\r" });
+    await flushFrames(testSetup, 8);
+
+    let frame = testSetup.captureCharFrame();
+    expect(frame).toContain("Core CPI");
+    const rowKey = pluginSlice()?.selectedRowKey;
+    await emitKeypress(testSetup, { name: "down", sequence: "\u001b[B" });
+    await flushFrames(testSetup, 8);
+
+    frame = testSetup.captureCharFrame();
+    expect(frame).toContain("Overview");
+    expect(pluginSlice()?.selectedRowKey).toBe(rowKey);
+    expect(harnessStateRef.current?.paneState[TEST_PANE_ID]?.pluginState?.[
+      "prediction-markets"
+    ]?.selectedDetailMarketKey ?? null).toBe("polymarket:pm-2");
+    expect(urls.some((url) => url.includes("token_id=yes-2"))).toBe(true);
+    expect(frame).toContain("Will core CPI fall?");
+  });
+
 });
+
+function pluginSlice() {
+  return harnessStateRef.current?.paneState[TEST_PANE_ID]?.pluginState?.[
+    "prediction-markets"
+  ] as {
+    detailTab?: string;
+    historyRange?: string;
+    selectedRowKey?: string | null;
+  } | undefined;
+}
+
+async function pressRepeat(name: string, sequence: string) {
+  await act(async () => {
+    testSetup!.renderer.keyInput.emit("keypress", {
+      name,
+      sequence,
+      ctrl: false,
+      meta: false,
+      option: false,
+      shift: false,
+      eventType: "press",
+      repeated: true,
+    } as any);
+    await testSetup!.renderOnce();
+  });
+}

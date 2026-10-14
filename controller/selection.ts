@@ -34,6 +34,26 @@ export function resolvePredictionSelectedRowState(
   return visibleRowLookup.get(selectedRowKey) ?? { row: null, index: -1 };
 }
 
+function pickPredictionSummary(
+  selectedRow: PredictionListRow,
+  preferredKey: string | null,
+): PredictionMarketSummary | null {
+  return (
+    selectedRow.markets.find((market) => market.key === preferredKey) ??
+    selectedRow.markets.find((market) => market.key === selectedRow.focusMarketKey) ??
+    selectedRow.representative ??
+    null
+  );
+}
+
+export function resolvePredictionBrowseSocketSummary(
+  detailOpen: boolean,
+  selectedRow: PredictionListRow | null,
+): PredictionMarketSummary | null {
+  if (detailOpen || !selectedRow) return null;
+  return pickPredictionSummary(selectedRow, selectedRow.focusMarketKey);
+}
+
 export function resolvePredictionSelectedSummary({
   detailOpen,
   selectedDetailMarketKey,
@@ -43,17 +63,6 @@ export function resolvePredictionSelectedSummary({
   selectedDetailMarketKey: string | null;
   selectedRow: PredictionListRow | null;
 }): PredictionMarketSummary | null {
-  if (!detailOpen || !selectedRow) {
-    return null;
-  }
-  return (
-    selectedRow.markets.find(
-      (market) => market.key === selectedDetailMarketKey,
-    ) ??
-    selectedRow.markets.find(
-      (market) => market.key === selectedRow.focusMarketKey,
-    ) ??
-    selectedRow.representative ??
-    null
-  );
+  if (!detailOpen || !selectedRow) return null;
+  return pickPredictionSummary(selectedRow, selectedDetailMarketKey);
 }

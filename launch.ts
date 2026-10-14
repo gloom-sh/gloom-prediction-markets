@@ -5,14 +5,14 @@ import type { AppSessionSnapshot, CliLaunchRequest, PaneDef } from "gloomberb/ty
 import { PREDICTION_CATEGORY_OPTIONS, type PredictionCategoryId } from "./categories";
 import { BROWSE_TABS } from "./navigation";
 import type { PredictionBrowseTab, PredictionVenueScope } from "./types";
+import { PREDICTION_VENUE_ORDER } from "./venues";
 
 const PREDICTION_PANE_ID = "prediction-markets";
 const PREDICTION_MAIN_INSTANCE_ID = `${PREDICTION_PANE_ID}:main`;
 
 const VENUE_SCOPE_SET = new Set<PredictionVenueScope>([
   "all",
-  "polymarket",
-  "kalshi",
+  ...PREDICTION_VENUE_ORDER,
 ]);
 const CATEGORY_ID_SET = new Set<PredictionCategoryId>(
   PREDICTION_CATEGORY_OPTIONS.map((option) => option.id),

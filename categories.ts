@@ -154,6 +154,19 @@ function normalizeCategoryText(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function keywordMatches(haystack: string, keyword: string): boolean {
+  if (keyword.length > 3) return haystack.includes(keyword);
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`).test(haystack);
+}
+
+export function categoryForPredictionQuery(
+  query: string,
+  categoryId: PredictionCategoryId,
+): PredictionCategoryId {
+  return query.trim() ? "all" : categoryId;
+}
+
 export function resolvePredictionDisplayCategory(
   tags: string[],
 ): string | undefined {
@@ -180,7 +193,7 @@ export function matchesPredictionCategory(
   ]
     .join(" ")
     .toLowerCase();
-  return keywords.some((keyword) => haystack.includes(keyword));
+  return keywords.some((keyword) => keywordMatches(haystack, keyword));
 }
 
 export function getPolymarketCategoryTagSlugs(

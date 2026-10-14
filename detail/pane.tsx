@@ -10,10 +10,10 @@ import {
 import { useShortcut } from "gloomberb/react";
 import { Box, ScrollBox, Text, useUiCapabilities } from "gloomberb/ui";
 import { type ScrollBoxRenderable } from "gloomberb/ui";
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import { colors } from "gloomberb/theme";
 import { isPlainKey } from "gloomberb/utils";
-import { PREDICTION_HISTORY_RANGE_OPTIONS } from "../chart";
+import { PREDICTION_HISTORY_RANGE_OPTIONS, PredictionChartChromeContext } from "../chart";
 import { DETAIL_TABS } from "../navigation";
 import {
   formatPredictionEndsAt,
@@ -29,16 +29,23 @@ import type {
   PredictionMarketDetail,
   PredictionMarketSummary,
 } from "../types";
+import { matchSettlement } from "../settlement";
 import { PredictionMarketBookView } from "./book";
 import { PredictionMarketOverviewView } from "./overview";
 import { PredictionMarketRulesView } from "./rules";
 import { truncatePredictionText } from "./shared";
 import { PredictionMarketTradesView } from "./trades";
 
-const DETAIL_VIEW_OPTIONS = DETAIL_TABS.map((tab) => ({
-  label: tab.label,
-  value: tab.value,
-}));
+function detailHasBookLevels(detail: PredictionMarketDetail | null): boolean {
+  if (!detail) return false;
+  const { yesBids, yesAsks, noBids, noAsks } = detail.book;
+  return (
+    yesBids.length > 0 ||
+    yesAsks.length > 0 ||
+    noBids.length > 0 ||
+    noAsks.length > 0
+  );
+}
 
 /**
  * The detail's switches on the desktop, where the stack's Back and title join
@@ -51,6 +58,7 @@ function PredictionDetailQueryBar({
   focused,
   meta,
   onDetailTabChange,
+  tabs,
   width,
 }: {
   detailTab: PredictionDetailTab;
@@ -58,6 +66,7 @@ function PredictionDetailQueryBar({
   focused: boolean;
   meta?: string;
   onDetailTabChange: (tab: PredictionDetailTab) => void;
+  tabs: ReadonlyArray<{ label: string; value: PredictionDetailTab }>;
   width: number;
 }) {
   useShortcut((event) => {
@@ -70,9 +79,9 @@ function PredictionDetailQueryBar({
     if (direction === 0) return;
     event.preventDefault();
     event.stopPropagation();
-    const index = DETAIL_TABS.findIndex((tab) => tab.value === detailTab);
-    const next = DETAIL_TABS[
-      Math.max(0, Math.min(index + direction, DETAIL_TABS.length - 1))
+    const index = tabs.findIndex((tab) => tab.value === detailTab);
+    const next = tabs[
+      Math.max(0, Math.min(index + direction, tabs.length - 1))
     ];
     if (next && next.value !== detailTab) onDetailTabChange(next.value);
   }, { enabled: focused });
@@ -90,7 +99,7 @@ function PredictionDetailQueryBar({
       filters={filters}
       view={{
         value: detailTab,
-        options: DETAIL_VIEW_OPTIONS,
+        options: tabs.map((tab) => ({ label: tab.label, value: tab.value })),
         onChange: (value: PredictionDetailTab) => onDetailTabChange(value),
       }}
       meta={meta}
@@ -102,6 +111,7 @@ export function PredictionMarketDetailPane({
   detail,
   detailLoadCount,
   detailTab,
+  eventMarkets,
   focused,
   height,
   historyRange,
@@ -112,10 +122,12 @@ export function PredictionMarketDetailPane({
   selectedSummary,
   scrollRef,
   width,
+  detailError = null,
 }: {
   detail: PredictionMarketDetail | null;
   detailLoadCount: number;
   detailTab: PredictionDetailTab;
+  eventMarkets?: PredictionMarketSummary[];
   focused: boolean;
   height: number;
   historyRange: PredictionHistoryRange;
@@ -127,8 +139,28 @@ export function PredictionMarketDetailPane({
   scrollRef: RefObject<ScrollBoxRenderable | null>;
   /** The whole detail width; the body insets one cell each side. */
   width: number;
+  detailError?: string | null;
 }) {
   const { nativePaneChrome } = useUiCapabilities();
+  const [rangeActive, setRangeActive] = useState(false);
+  const detailFailed = !detail && (detailError?.trim().length ?? 0) > 0;
+  const detailPending = !detail && !detailFailed;
+  const hasBookForTabs = selectedSummary?.venue === "polymarket" || selectedSummary?.venue === "kalshi";
+  const detailTabsForChrome = DETAIL_TABS.filter((tab) =>
+    hasBookForTabs || (tab.value !== "book" && tab.value !== "trades"));
+  const activeTabForChrome = selectedSummary && detailTabsForChrome.some((tab) => tab.value === detailTab)
+    ? detailTab
+    : "overview";
+  const rangeKeys = rangeActive && activeTabForChrome === "overview" && !nativePaneChrome;
+  useEffect(() => {
+    if (!rangeKeys && rangeActive) setRangeActive(false);
+  }, [rangeActive, rangeKeys]);
+  const chartChrome = useMemo(() => ({
+    rangeActive: rangeKeys,
+    setRangeActive,
+    loading: detailPending,
+    failed: detailFailed,
+  }), [detailFailed, detailPending, rangeKeys]);
 
   if (!selectedSummary) {
     return (
@@ -143,6 +175,13 @@ export function PredictionMarketDetailPane({
 
   const detailWidth = Math.max(width - 2, 24);
   const summaryMetrics = detail?.summary ?? selectedSummary;
+  const settlement = matchSettlement({
+    seriesTicker: summaryMetrics.seriesTicker,
+    eventTicker: summaryMetrics.eventTicker,
+    title: summaryMetrics.title,
+    resolutionSource: summaryMetrics.resolutionSource,
+    category: summaryMetrics.category,
+  });
   let detailSubtitle = "";
   if (selectedRow?.kind === "group") {
     detailSubtitle = summaryMetrics.category ?? "";
@@ -209,12 +248,24 @@ export function PredictionMarketDetailPane({
       ),
     },
   ];
-  const siblings =
-    selectedRow?.kind === "group"
-      ? []
-      : (detail?.siblings?.filter(
-          (sibling) => sibling.key !== selectedSummary.key,
-        ) ?? []);
+  const hasBook = selectedSummary.venue === "polymarket" || selectedSummary.venue === "kalshi";
+  const detailTabs = DETAIL_TABS.filter((tab) =>
+    hasBook || (tab.value !== "book" && tab.value !== "trades"));
+  const activeTab = detailTabs.some((tab) => tab.value === detailTab) ? detailTab : "overview";
+  // One contract still uses detail.siblings. Several are already on the event.
+  const catalogOutcomes = eventMarkets && eventMarkets.length > 1 ? eventMarkets : null;
+  const networkSiblings = selectedRow?.kind === "group"
+    ? []
+    : (detail?.siblings?.filter((sibling) => sibling.key !== selectedSummary.key) ?? []);
+  const siblings = catalogOutcomes
+    ? catalogOutcomes
+        .filter((market) => market.key !== selectedSummary.key)
+        .map((market) => ({
+          key: market.key,
+          label: market.marketLabel,
+          yesPrice: market.yesPrice,
+        }))
+    : networkSiblings;
   // The terminal row only has room for a few; the desktop menu lists them all.
   const relatedSiblings = siblings.slice(
     0,
@@ -240,7 +291,7 @@ export function PredictionMarketDetailPane({
     });
   }
   // On the desktop the chart range sits in the bar, beside the tab it changes.
-  if (detailTab === "overview") {
+  if (activeTab === "overview" && hasBook) {
     barFilters.push({
       id: "range",
       label: "Range",
@@ -251,9 +302,11 @@ export function PredictionMarketDetailPane({
     });
   }
   const detailLoading = detailLoadCount > 0 && !detail;
+  const bookLoading = detailLoadCount > 0 && !detailHasBookLevels(detail);
   const detailTextWidth = Math.max(detailWidth, 12);
 
   return (
+    <PredictionChartChromeContext.Provider value={chartChrome}>
     <Box
       flexDirection="column"
       flexGrow={1}
@@ -264,11 +317,12 @@ export function PredictionMarketDetailPane({
     >
       {nativePaneChrome ? (
         <PredictionDetailQueryBar
-          detailTab={detailTab}
+          detailTab={activeTab}
           filters={barFilters}
           focused={focused}
           meta={detailSubtitle || undefined}
           onDetailTabChange={onDetailTabChange}
+          tabs={detailTabs}
           width={width}
         />
       ) : detailSubtitle ? (
@@ -304,11 +358,11 @@ export function PredictionMarketDetailPane({
       {!nativePaneChrome && (
         <Box paddingX={1} paddingBottom={1}>
           <Tabs
-            tabs={DETAIL_VIEW_OPTIONS}
-            activeValue={detailTab}
+            tabs={detailTabs.map((tab) => ({ label: tab.label, value: tab.value }))}
+            activeValue={activeTab}
             onSelect={(value) => onDetailTabChange(value as PredictionDetailTab)}
             compact
-            focused={focused}
+            focused={focused && !rangeKeys}
           />
         </Box>
       )}
@@ -321,10 +375,10 @@ export function PredictionMarketDetailPane({
         flexShrink={1}
         flexBasis={0}
         minHeight={0}
-        paddingX={detailTab === "overview" || detailTab === "rules" ? 1 : 0}
+        paddingX={activeTab === "overview" || activeTab === "rules" ? 1 : 0}
         overflow="hidden"
       >
-        {detailTab === "overview" || detailTab === "rules" ? (
+        {activeTab === "overview" || activeTab === "rules" ? (
           <ScrollBox
             ref={scrollRef}
             flexGrow={1}
@@ -333,7 +387,7 @@ export function PredictionMarketDetailPane({
             paddingTop={nativePaneChrome ? 1 : 0}
             scrollY
           >
-            {detailTab === "overview" && (
+            {activeTab === "overview" && (
               <PredictionMarketOverviewView
                 detail={detail}
                 detailWidth={detailWidth}
@@ -343,50 +397,66 @@ export function PredictionMarketDetailPane({
                 loading={detailLoading}
                 onHistoryRangeChange={onHistoryRangeChange}
                 onSelectMarket={onSelectMarket}
+                outcomeMarkets={catalogOutcomes ?? undefined}
+                selectedMarketKey={selectedSummary.key}
                 selectedRow={selectedRow}
+                settlement={settlement}
+                showChart={hasBook}
                 showRangeTabs={!nativePaneChrome}
                 summary={summaryMetrics}
               />
             )}
 
-            {detailTab === "rules" && (
+            {activeTab === "rules" && (
               <PredictionMarketRulesView
                 detailWidth={detailTextWidth}
+                failed={detailFailed}
+                loading={detailPending}
                 rules={detail?.rules ?? []}
+                settlement={settlement}
               />
             )}
           </ScrollBox>
         ) : null}
 
-        {detailTab === "book" && (
+        {activeTab === "book" && (
           <Box flexGrow={1} flexShrink={1} flexBasis={0} overflow="hidden">
             {detail ? (
               <PredictionMarketBookView
                 detail={detail}
                 focused={focused}
+                loading={bookLoading}
                 width={width}
               />
             ) : (
               <Box flexGrow={1} justifyContent="center">
                 <EmptyState
-                  title={detailLoading ? "Loading order book." : "No order book."}
-                  hint="This venue did not return current order book depth."
+                  title={detailFailed ? "Order book unavailable." : "Loading order book."}
                 />
               </Box>
             )}
           </Box>
         )}
 
-        {detailTab === "trades" && (
+        {activeTab === "trades" && (
           <Box flexGrow={1} flexShrink={1} flexBasis={0} overflow="hidden">
-            <PredictionMarketTradesView
-              focused={focused}
-              trades={detail?.trades ?? []}
-              width={width}
-            />
+            {detail ? (
+              <PredictionMarketTradesView
+                focused={focused}
+                trades={detail.trades}
+                width={width}
+              />
+            ) : (
+              <Box flexGrow={1} justifyContent="center">
+                <EmptyState
+                  title={detailFailed ? "Trades unavailable." : "Loading recent trades."}
+                />
+              </Box>
+            )}
           </Box>
         )}
       </Box>
     </Box>
+    </PredictionChartChromeContext.Provider>
   );
 }

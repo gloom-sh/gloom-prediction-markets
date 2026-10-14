@@ -6,9 +6,19 @@ import {
   installPredictionMarketMocks,
   MemoryPersistence,
 } from "./test-helpers";
-import { colors } from "gloomberb/theme";
-import { resolvePredictionKeyboardCommand } from "./keyboard";
-import { buildPredictionListRows } from "./rows";
+
+import {
+  adjacentPredictionQueryTarget,
+  predictionArrowDirection,
+  predictionTabDirection,
+  resolvePredictionKeyboardCommand,
+} from "./keyboard";
+import {
+  buildPredictionListRows,
+  flattenPredictionListRows,
+  resolvePredictionListActivation,
+  togglePredictionGroupExpanded,
+} from "./rows";
 import { getPredictionColumnValue } from "./metrics";
 import {
   attachPredictionMarketsPersistence,
@@ -117,6 +127,106 @@ describe("prediction markets plugin registration and services", () => {
       } as any)?.yesPrice,
     ).toBe(0.62);
 
+    const event = {
+      id: "fed",
+      title: "Fed Decision in October?",
+      openInterest: 4_398_043,
+    };
+    const own = normalizePolymarketMarket({
+      id: "hike",
+      question: "25 bps increase?",
+      groupItemTitle: "25 bps increase",
+      outcomes: ["Yes", "No"],
+      outcomePrices: ["0.17", "0.83"],
+      volume24hr: 442_373,
+      openInterest: 80_000,
+      events: [event],
+    } as any);
+    expect(own?.openInterest).toBe(80_000);
+    const fed = buildPredictionListRows([
+      normalizePolymarketMarket({
+        id: "no-change",
+        question: "No change?",
+        groupItemTitle: "No change",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.84", "0.16"],
+        volume24hr: 387_726,
+        events: [event],
+      } as any)!,
+      normalizePolymarketMarket({
+        id: "cut",
+        question: "25 bps decrease?",
+        groupItemTitle: "25 bps decrease",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.04", "0.96"],
+        volume24hr: 282_455,
+        events: [event],
+      } as any)!,
+    ]);
+    expect(fed[0]?.openInterest).toBe(4_398_043);
+    const fedRows = flattenPredictionListRows(fed, new Set([fed[0]!.key]));
+    expect(fedRows[1]?.openInterest).toBe(null);
+    expect(fedRows[2]?.openInterest).toBe(null);
+
+    const summedVolume = {
+      id: "volume-sum",
+      title: "Summed 24h volume",
+      volume24hr: 9_999,
+    };
+    const summed = buildPredictionListRows([
+      normalizePolymarketMarket({
+        id: "vol-a",
+        question: "Contract A?",
+        groupItemTitle: "Contract A",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.40", "0.60"],
+        volume24hr: 100,
+        events: [summedVolume],
+      } as any)!,
+      normalizePolymarketMarket({
+        id: "vol-b",
+        question: "Contract B?",
+        groupItemTitle: "Contract B",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.25", "0.75"],
+        volume24hr: 250,
+        events: [summedVolume],
+      } as any)!,
+    ]);
+    expect(summed[0]?.volume24h).toBe(350);
+
+    const sharedVolume = {
+      id: "volume-shared",
+      title: "Shared 24h volume",
+      volume24hr: 900,
+    };
+    const sharedContracts = [
+      normalizePolymarketMarket({
+        id: "vol-c",
+        question: "Contract C?",
+        groupItemTitle: "Contract C",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.50", "0.50"],
+        events: [sharedVolume],
+      } as any)!,
+      normalizePolymarketMarket({
+        id: "vol-d",
+        question: "Contract D?",
+        groupItemTitle: "Contract D",
+        outcomes: ["Yes", "No"],
+        outcomePrices: ["0.20", "0.80"],
+        events: [sharedVolume],
+      } as any)!,
+    ];
+    expect(sharedContracts[0]?.volume24h).toBe(null);
+    expect(sharedContracts[0]?.eventVolume24h).toBe(900);
+    expect(sharedContracts[1]?.volume24h).toBe(null);
+    const shared = buildPredictionListRows(sharedContracts);
+    expect(shared[0]?.volume24h).toBe(900);
+    const sharedRows = flattenPredictionListRows(shared, new Set([shared[0]!.key]));
+    expect(sharedRows[1]?.volume24h).not.toBe(900);
+    expect(sharedRows[2]?.volume24h).not.toBe(900);
+
     expect(
       normalizeKalshiMarket({
         ticker: "KAL-1",
@@ -215,6 +325,32 @@ describe("prediction markets plugin registration and services", () => {
     expect(rows[0]?.kind).toBe("group");
     expect(rows[0]?.focusMarketKey).toBe("kalshi:KXFED-27APR-T4.25");
     expect(rows[0]?.focusYesPrice).toBe(0.48);
+    expect(resolvePredictionListActivation(rows[0]!)).toBe("toggle-group");
+
+    const collapsed = flattenPredictionListRows(rows, new Set());
+    expect(collapsed).toHaveLength(1);
+    expect(getPredictionColumnValue(
+      { id: "market", label: "MARKET", width: 34, align: "left", description: "" },
+      collapsed[0]!,
+      false,
+    ).text).toMatch(/^▸ /);
+
+    const expandedKeys = togglePredictionGroupExpanded(new Set(), rows[0]!.key);
+    const expanded = flattenPredictionListRows(rows, expandedKeys);
+    expect(expanded.map((row) => row.kind)).toEqual(["group", "market", "market"]);
+    expect(expanded[1]?.title).toBe("Above 4.25%");
+    expect(expanded[1]?.parentKey).toBe(rows[0]!.key);
+    expect(resolvePredictionListActivation(expanded[1]!)).toBe("open-detail");
+    expect(getPredictionColumnValue(
+      { id: "market", label: "MARKET", width: 34, align: "left", description: "" },
+      expanded[0]!,
+      false,
+    ).text).toMatch(/^▾ /);
+    expect(getPredictionColumnValue(
+      { id: "market", label: "MARKET", width: 34, align: "left", description: "" },
+      expanded[1]!,
+      false,
+    ).text.startsWith("\u00A0\u00A0")).toBe(true);
   });
 
   test("styles YES consistently and uses the lead contract quote on grouped rows", () => {
@@ -263,22 +399,19 @@ describe("prediction markets plugin registration and services", () => {
       )!,
     ]);
 
-    expect(
-      getPredictionColumnValue(
-        {
-          id: "yes",
-          label: "TOP ODDS",
-          width: 20,
-          align: "left",
-          description: "",
-        },
-        row!,
-        false,
-      ),
-    ).toMatchObject({
-      text: "48% Above 4.25%",
-      color: colors.negative,
-    });
+    const odds = getPredictionColumnValue(
+      {
+        id: "yes",
+        label: "TOP ODDS",
+        width: 20,
+        align: "left",
+        description: "",
+      },
+      row!,
+      false,
+    );
+    expect(odds.text).toBe("48% Above 4.25%");
+    expect(odds.color).toBeUndefined();
   });
 
   test("uses an allowed Kalshi candlestick interval for 1W history", async () => {
@@ -339,6 +472,18 @@ describe("prediction markets plugin registration and services", () => {
         shift: true,
       }),
     ).toBe("next-venue-tab");
+    expect(predictionArrowDirection({ name: "right", sequence: "\u001b[C" })).toBe("next");
+    expect(predictionArrowDirection({ name: "l", sequence: "l" })).toBeNull();
+    expect(predictionArrowDirection({ name: "right", shift: true })).toBeNull();
+    expect(predictionTabDirection({ name: "tab", sequence: "\t" })).toBe(1);
+    expect(predictionTabDirection({ name: "tab", shift: true })).toBe(-1);
+    expect(predictionTabDirection({ name: "tab", ctrl: true })).toBeNull();
+    expect(adjacentPredictionQueryTarget(null, 1, false)).toBe("search");
+    expect(adjacentPredictionQueryTarget("search", 1, false)).toBe("venue");
+    expect(adjacentPredictionQueryTarget("venue", 1, false)).toBe("view");
+    expect(adjacentPredictionQueryTarget("view", 1, false)).toBeNull();
+    expect(adjacentPredictionQueryTarget("search", -1, false)).toBeNull();
+    expect(adjacentPredictionQueryTarget("search", 1, true)).toBe("view");
   });
 
   test("filters closed Polymarket child markets from the catalog", async () => {
@@ -459,9 +604,7 @@ describe("prediction markets plugin registration and services", () => {
     ).toBe(true);
   });
 
-  test("falls back to thin Polymarket search results when event hydration fails", async () => {
-    let eventFetchCount = 0;
-
+  test("lists Polymarket search hits without hydrating each event", async () => {
     globalThis.fetch = (async (input: Request | string | URL) => {
       const url = String(input);
       if (url.includes("gamma-api.polymarket.com/public-search")) {
@@ -495,10 +638,6 @@ describe("prediction markets plugin registration and services", () => {
         );
       }
       if (url.includes("gamma-api.polymarket.com/events/event-1")) {
-        eventFetchCount += 1;
-        if (eventFetchCount <= 3) {
-          return new Response("{}", { status: 500 });
-        }
         return new Response(
           JSON.stringify({
             id: "event-1",

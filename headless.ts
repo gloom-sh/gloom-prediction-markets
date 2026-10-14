@@ -13,6 +13,7 @@ import { parsePredictionSearchShortcut } from "./navigation";
 import { buildPredictionListRows } from "./rows";
 import { loadKalshiCatalog } from "./services/kalshi/adapter";
 import { loadPolymarketCatalog } from "./services/polymarket/adapter";
+import { venueInScope } from "./venues";
 import type {
   PredictionBrowseTab,
   PredictionCategoryId,
@@ -226,13 +227,13 @@ export function createPredictionMarketsHeadless(
         venue: "polymarket" | "kalshi";
         load: Promise<PredictionMarketSummary[]>;
       }> = [];
-      if (selection.venue !== "kalshi") {
+      if (venueInScope("polymarket", selection.venue)) {
         requested.push({
           venue: "polymarket",
           load: dependencies.loadPolymarket(selection.query, selection.category, 200),
         });
       }
-      if (selection.venue !== "polymarket") {
+      if (venueInScope("kalshi", selection.venue)) {
         requested.push({
           venue: "kalshi",
           load: dependencies.loadKalshi(selection.query, selection.category, 200),

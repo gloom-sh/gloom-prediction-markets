@@ -6,18 +6,31 @@ import {
 } from "gloomberb/utils";
 
 const DEFAULT_SOURCE_KEY = "remote";
-const PREDICTION_FETCH = createThrottledFetch({
-  requestsPerMinute: 120,
-  maxRetries: 2,
-  timeoutMs: 10_000,
-  backoffBaseMs: 250,
-  dedupeGetRequests: false,
-  defaultHeaders: {
-    Accept: "application/json",
-    "User-Agent": "gloomberb-prediction-markets",
-  },
-  transport: httpFetch,
-});
+
+function createPredictionFetch() {
+  return createThrottledFetch({
+    requestsPerMinute: 120,
+    maxRetries: 2,
+    timeoutMs: 10_000,
+    backoffBaseMs: 250,
+    dedupeGetRequests: false,
+    defaultHeaders: {
+      Accept: "application/json",
+      "User-Agent": "gloomberb-prediction-markets",
+    },
+    transport: httpFetch,
+  });
+}
+
+let PREDICTION_FETCH = createPredictionFetch();
+
+/** Starts a fresh per-host request budget and forgets shared downloads in
+ * flight. Tests call it so one test's mocked requests, or a download it left
+ * hanging, do not hold up the next one. */
+export function resetPredictionNetworkState(): void {
+  PREDICTION_FETCH = createPredictionFetch();
+  sharedPredictionLoads.clear();
+}
 
 export const PREDICTION_CACHE_POLICIES = {
   catalog: { staleMs: 30_000, expireMs: 10 * 60_000 },
@@ -40,8 +53,15 @@ export function resetPredictionMarketsPersistence(): void {
   predictionMarketsPersistence = null;
 }
 
-export async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await PREDICTION_FETCH.fetch(url, { signal });
+export async function fetchJson<T>(
+  url: string,
+  signal?: AbortSignal,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await PREDICTION_FETCH.fetch(url, {
+    ...init,
+    signal: signal ?? init?.signal,
+  });
   if (!response.ok) {
     throw new Error(`Request failed (${response.status}) for ${url}`);
   }
@@ -102,6 +122,58 @@ export async function loadCachedPredictionResource<T>(
     if (cached) return cached.value;
     throw error;
   }
+}
+
+const sharedPredictionLoads = new Map<string, Promise<unknown>>();
+
+function predictionAbortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(predictionAbortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * A whole-venue download that the list and a search scan ask for at the same
+ * time runs once. It is not tied to any one caller's signal: a search that a
+ * new keystroke aborts stops waiting, but the download finishes and is cached
+ * for the next query instead of starting over. Use it only for keys without a
+ * query, where every caller wants the same answer.
+ */
+export function loadSharedPredictionResource<T>(
+  kind: string,
+  key: string,
+  fetcher: () => Promise<T>,
+  cachePolicy: { staleMs: number; expireMs: number },
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) return Promise.reject(predictionAbortError());
+  const id = `${kind}\n${key}`;
+  let shared = sharedPredictionLoads.get(id) as Promise<T> | undefined;
+  if (!shared) {
+    shared = loadCachedPredictionResource(kind, key, fetcher, cachePolicy).finally(() => {
+      sharedPredictionLoads.delete(id);
+    });
+    sharedPredictionLoads.set(id, shared);
+  }
+  return untilAborted(shared, signal);
 }
 
 function summarizePredictionFetchUrl(url: string): string {

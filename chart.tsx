@@ -1,15 +1,25 @@
 import { Box, Text } from "gloomberb/ui";
-import { useMemo } from "react";
+import { createContext, useContext, useMemo, type Dispatch, type SetStateAction } from "react";
 import { Tabs } from "gloomberb/components";
 import {
   CompositeChart,
   pricePointsToResolvedSeries,
 } from "gloomberb/components";
 import { EmptyState } from "gloomberb/components";
+import { useShortcut } from "gloomberb/react";
 import { colors } from "gloomberb/theme";
-import { formatNumber, formatPercentRaw } from "gloomberb/utils";
+import { formatNumber, formatPercentRaw, isPlainKey, isPlainKeyboardEvent } from "gloomberb/utils";
 import type { PricePoint } from "gloomberb/types/financials";
 import type { PredictionHistoryPoint, PredictionHistoryRange } from "./types";
+
+export interface PredictionChartChrome {
+  rangeActive: boolean;
+  setRangeActive: Dispatch<SetStateAction<boolean>>;
+  loading: boolean;
+  failed: boolean;
+}
+
+export const PredictionChartChromeContext = createContext<PredictionChartChrome | null>(null);
 
 const RANGES: PredictionHistoryRange[] = ["1D", "1W", "1M", "ALL"];
 
@@ -74,6 +84,7 @@ export function PredictionMarketChart({
   width,
   height,
   loading = false,
+  failed = false,
   focused = false,
   range,
   onRangeSelect,
@@ -83,13 +94,36 @@ export function PredictionMarketChart({
   width: number;
   height: number;
   loading?: boolean;
+  failed?: boolean;
   focused?: boolean;
   range: PredictionHistoryRange;
   onRangeSelect: (range: PredictionHistoryRange) => void;
   /** Off where the range is picked in the detail's query bar instead. */
   showRangeTabs?: boolean;
 }) {
+  const chrome = useContext(PredictionChartChromeContext);
   const pricePoints = useMemo(() => toPricePoints(history), [history]);
+  const showLoading = loading || chrome?.loading === true;
+  const showFailed = !showLoading && (failed || chrome?.failed === true);
+  const rangeFocused = chrome ? chrome.rangeActive : focused;
+  useShortcut((event) => {
+    if (!chrome || event.targetEditable || event.repeat || !isPlainKeyboardEvent(event)) return;
+    if (event.defaultPrevented || event.propagationStopped) return;
+    if (chrome.rangeActive) {
+      if (!isPlainKey(event, "escape", "up")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      chrome.setRangeActive(false);
+      return;
+    }
+    if (!isPlainKey(event, "return", "enter")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    chrome.setRangeActive(true);
+  }, {
+    enabled: showRangeTabs && focused && chrome != null,
+    phase: "before",
+  });
 
   if (pricePoints.length === 0) {
     return (
@@ -98,14 +132,16 @@ export function PredictionMarketChart({
           <Box flexDirection="row" height={1}>
             <PredictionRangeTabs
               activeRange={range}
-              focused={focused}
+              focused={rangeFocused}
               onRangeSelect={onRangeSelect}
             />
           </Box>
         )}
         <Box flexGrow={1} justifyContent="center">
-          {loading ? (
+          {showLoading ? (
             <Text fg={colors.textDim}>Loading chart...</Text>
+          ) : showFailed ? (
+            <EmptyState title="Chart unavailable." />
           ) : (
             <EmptyState
               title="No chart history."
@@ -138,7 +174,7 @@ export function PredictionMarketChart({
         {showRangeTabs && (
           <PredictionRangeTabs
             activeRange={range}
-            focused={focused}
+            focused={rangeFocused}
             onRangeSelect={onRangeSelect}
           />
         )}
@@ -161,6 +197,7 @@ export function PredictionMarketChart({
         height={chartHeight}
         focused={focused}
         interactive
+        navigable={false}
         series={[priceSeries]}
         panels={[{ id: "price" }]}
         axisWidth={8}

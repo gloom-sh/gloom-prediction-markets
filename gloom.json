@@ -2,8 +2,8 @@
   "id": "prediction-markets",
   "name": "Prediction Markets",
   "icon": "icon.webp",
-  "tagline": "Polymarket and Kalshi event markets",
-  "description": "Browse Polymarket and Kalshi event markets in one table: prices, spreads, volume, liquidity, and close dates, filtered by venue and category. Open a market for its order book, recent trades, outcome breakdown, price history, and resolution rules, with live book and trade updates from Polymarket. Also `gloomberb predictions [...]` on the command line, and a chart-series capability so a market's price history can be plotted beside anything else.",
+  "tagline": "Event markets from Polymarket, Kalshi and five more venues",
+  "description": "Browse event markets in one table: Polymarket and Kalshi together, or Gemini, Limitless, Crypto.com, Polymarket US or Pascal on their own from the Venue menu. Prices, spreads, volume, liquidity, and close dates, filtered by category. Open a market for its order book, recent trades, outcome breakdown, price history, and resolution rules, with live book and trade updates from Polymarket. Also `gloomberb predictions [...]` on the command line for Polymarket and Kalshi, and a chart-series capability so a Polymarket or Kalshi market's price history can be plotted beside anything else.",
   "categories": [
     "markets",
     "data"
@@ -18,7 +18,12 @@
     "gamma-api.polymarket.com",
     "clob.polymarket.com",
     "data-api.polymarket.com",
-    "api.elections.kalshi.com"
+    "api.elections.kalshi.com",
+    "api.gemini.com",
+    "api.limitless.exchange",
+    "api.crypto.com",
+    "gateway.polymarket.us",
+    "data.pascal.trade"
   ],
   "contributes": {
     "panes": [
@@ -31,7 +36,7 @@
       {
         "code": "PM",
         "name": "Prediction Markets",
-        "description": "Polymarket and Kalshi event markets with order books, trades and price history."
+        "description": "Event markets from Polymarket, Kalshi and five more venues, with order books, trades and price history."
       }
     ]
   },

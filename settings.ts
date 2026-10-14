@@ -10,23 +10,19 @@ import type {
   PredictionPaneSettings,
   PredictionVenueScope,
 } from "./types";
+import { PREDICTION_VENUE_LABELS, PREDICTION_VENUE_ORDER } from "./venues";
 
 const VENUE_SCOPE_OPTIONS: PaneSettingOption[] = [
   {
     value: "all",
     label: "All Venues",
-    description: "Merge Polymarket and Kalshi into one browser.",
+    description: "Browse Polymarket and Kalshi together.",
   },
-  {
-    value: "polymarket",
-    label: "Polymarket",
-    description: "Lock this pane to Polymarket.",
-  },
-  {
-    value: "kalshi",
-    label: "Kalshi",
-    description: "Lock this pane to Kalshi.",
-  },
+  ...PREDICTION_VENUE_ORDER.map((venue) => ({
+    value: venue,
+    label: PREDICTION_VENUE_LABELS[venue],
+    description: `Lock this pane to ${PREDICTION_VENUE_LABELS[venue]}.`,
+  })),
 ];
 
 const BROWSE_TAB_OPTIONS: PaneSettingOption[] = [
@@ -45,7 +41,7 @@ const BROWSE_TAB_OPTIONS: PaneSettingOption[] = [
 ];
 
 function isVenueScope(value: unknown): value is PredictionVenueScope {
-  return value === "all" || value === "polymarket" || value === "kalshi";
+  return value === "all" || (typeof value === "string" && value in PREDICTION_VENUE_LABELS);
 }
 
 function isBrowseTab(value: unknown): value is PredictionBrowseTab {
@@ -72,7 +68,6 @@ export function getPredictionMarketsPaneSettings(
     lockedVenueScope: isVenueScope(settings?.lockedVenueScope)
       ? settings.lockedVenueScope
       : "all",
-    hideHeader: settings?.hideHeader === true,
     defaultBrowseTab: isBrowseTab(settings?.defaultBrowseTab)
       ? settings.defaultBrowseTab
       : "top",
@@ -86,7 +81,6 @@ export function createPredictionMarketsPaneSettings(
     columnIds: [...(overrides.columnIds ?? DEFAULT_PREDICTION_COLUMN_IDS)],
     hideTabs: overrides.hideTabs ?? false,
     lockedVenueScope: overrides.lockedVenueScope ?? "all",
-    hideHeader: overrides.hideHeader ?? false,
     defaultBrowseTab: overrides.defaultBrowseTab ?? "top",
   };
 }
@@ -140,11 +134,6 @@ export function buildPredictionMarketsPaneSettingsDef(
     });
   }
 
-  fields.push({
-    key: "hideHeader",
-    label: "Hide Header",
-    type: "toggle",
-  });
   fields.push({
     key: "defaultBrowseTab",
     label: "Default View",

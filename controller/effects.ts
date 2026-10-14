@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type InputRenderable, type ScrollBoxRenderable } from "gloomberb/ui";
 import {
   parsePredictionSearchShortcut,
@@ -8,6 +8,7 @@ import type {
   PredictionBrowseTab,
   PredictionCategoryId,
   PredictionListRow,
+  PredictionSiblingMarket,
   PredictionVenueScope,
 } from "../types";
 
@@ -44,7 +45,10 @@ interface UsePredictionControllerEffectsOptions {
   setSelectedDetailMarketKey: DebouncedSelectionSetter;
   setSelectedRowKey: DebouncedSelectionSetter;
   setVenueScope: Dispatch<SetStateAction<PredictionVenueScope>>;
-  visibleRowsLength: number;
+  visibleRows: readonly PredictionListRow[];
+  catalogLoadCount: number;
+  detailSiblings: readonly Pick<PredictionSiblingMarket, "key">[] | undefined;
+  searchPending: boolean;
 }
 
 export function usePredictionControllerEffects({
@@ -75,8 +79,20 @@ export function usePredictionControllerEffects({
   setSelectedDetailMarketKey,
   setSelectedRowKey,
   setVenueScope,
-  visibleRowsLength,
+  visibleRows,
+  catalogLoadCount,
+  detailSiblings,
+  searchPending,
 }: UsePredictionControllerEffectsOptions): void {
+  const visibleRowsLength = visibleRows.length;
+  const sawCatalogPendingRef = useRef(false);
+  const catalogSettledRef = useRef(false);
+  if (catalogLoadCount > 0) sawCatalogPendingRef.current = true;
+  if (sawCatalogPendingRef.current && catalogLoadCount === 0) {
+    catalogSettledRef.current = true;
+  }
+  const catalogLoading = catalogLoadCount > 0
+    || (visibleRowsLength === 0 && !catalogSettledRef.current);
   useEffect(() => {
     if (hideTabs && effectiveVenueScope !== lockedVenueScope) {
       setVenueScope(lockedVenueScope);
@@ -160,19 +176,20 @@ export function usePredictionControllerEffects({
   ]);
 
   useEffect(() => {
-    if (visibleRowsLength === 0) {
-      if (selectedRowKey !== null) {
-        setSelectedRowKey(null);
-      }
-      if (selectedDetailMarketKey !== null) {
-        setSelectedDetailMarketKey(null);
-      }
-      if (detailOpen) {
-        setDetailOpen(false);
-      }
+    if (searchPending || visibleRowsLength !== 0 || catalogLoading) return;
+    if (selectedRowKey !== null) {
+      setSelectedRowKey(null);
+    }
+    if (selectedDetailMarketKey !== null) {
+      setSelectedDetailMarketKey(null);
+    }
+    if (detailOpen) {
+      setDetailOpen(false);
     }
   }, [
+    catalogLoading,
     detailOpen,
+    searchPending,
     selectedDetailMarketKey,
     selectedRowKey,
     setDetailOpen,
@@ -182,9 +199,19 @@ export function usePredictionControllerEffects({
   ]);
 
   useEffect(() => {
-    if (selectedRowKey == null || selectedRow) {
+    if (searchPending || selectedRowKey == null || selectedRow) {
       return;
     }
+
+    const group = visibleRows.find((row) =>
+      row.kind === "group"
+      && row.markets.some((market) => market.key === selectedRowKey),
+    );
+    if (group) {
+      setSelectedRowKey(group.key, { immediate: true });
+      return;
+    }
+    if (catalogLoading) return;
 
     if (detailOpen) {
       setDetailOpen(false);
@@ -194,13 +221,16 @@ export function usePredictionControllerEffects({
     }
     setSelectedRowKey(null);
   }, [
+    catalogLoading,
     detailOpen,
+    searchPending,
     selectedDetailMarketKey,
     selectedRow,
     selectedRowKey,
     setDetailOpen,
     setSelectedDetailMarketKey,
     setSelectedRowKey,
+    visibleRows,
   ]);
 
   useEffect(() => {
@@ -210,8 +240,9 @@ export function usePredictionControllerEffects({
 
     if (
       selectedDetailMarketKey
-      && selectedRow.markets.some(
-        (market) => market.key === selectedDetailMarketKey,
+      && (
+        selectedRow.markets.some((market) => market.key === selectedDetailMarketKey)
+        || detailSiblings?.some((sibling) => sibling.key === selectedDetailMarketKey)
       )
     ) {
       return;
@@ -220,6 +251,7 @@ export function usePredictionControllerEffects({
     setSelectedDetailMarketKey(selectedRow.focusMarketKey);
   }, [
     detailOpen,
+    detailSiblings,
     selectedDetailMarketKey,
     selectedRow,
     setSelectedDetailMarketKey,

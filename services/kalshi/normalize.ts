@@ -20,6 +20,41 @@ export function normalizeKalshiBookLevel(
   return { price, size };
 }
 
+export interface KalshiMarketQuote {
+  key: string;
+  yesPrice: number | null;
+  noPrice: number | null;
+  lastTradePrice: number | null;
+  yesBid: number | null;
+  yesAsk: number | null;
+  noBid: number | null;
+  noAsk: number | null;
+  spread: number | null;
+  volume24h: number | null;
+  openInterest: number | null;
+}
+
+export function readKalshiMarketQuote(record: KalshiMarketRecord): KalshiMarketQuote | null {
+  const ticker = record.ticker?.trim();
+  if (!ticker) return null;
+  const prices = getKalshiDisplayPrice(record);
+  const yesBid = parseFloatSafe(record.yes_bid_dollars);
+  const yesAsk = parseFloatSafe(record.yes_ask_dollars);
+  return {
+    key: `kalshi:${ticker}`,
+    yesPrice: prices.yesPrice,
+    noPrice: prices.noPrice,
+    lastTradePrice: prices.lastTradePrice,
+    yesBid,
+    yesAsk,
+    noBid: parseFloatSafe(record.no_bid_dollars),
+    noAsk: parseFloatSafe(record.no_ask_dollars),
+    spread: yesBid != null && yesAsk != null ? yesAsk - yesBid : null,
+    volume24h: parseFloatSafe(record.volume_24h_fp),
+    openInterest: parseFloatSafe(record.open_interest_fp),
+  };
+}
+
 function getKalshiDisplayPrice(record: KalshiMarketRecord): {
   yesPrice: number | null;
   noPrice: number | null;

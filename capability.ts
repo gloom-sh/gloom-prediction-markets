@@ -12,6 +12,7 @@ import {
   resolvePolymarketChartSummary,
 } from "./services/polymarket/detail";
 import type { PredictionHistoryPoint, PredictionHistoryRange, PredictionMarketSummary, PredictionVenue } from "./types";
+import { PREDICTION_VENUE_LABELS } from "./venues";
 
 export const PREDICTION_CHART_SERIES_CAPABILITY_ID = "prediction-markets.series";
 const predictionSeriesLog = debugLog.createLogger("prediction-markets.series");
@@ -23,6 +24,7 @@ interface PredictionSeriesIdentity {
 }
 
 export function predictionSeriesId(summary: PredictionMarketSummary): string | null {
+  if (summary.venue !== "kalshi" && summary.venue !== "polymarket") return null;
   const eventId = summary.venue === "kalshi" ? summary.eventTicker : summary.eventId;
   if (!eventId?.trim() || !summary.marketId.trim()) return null;
   const id = `${summary.venue}/${encodeURIComponent(eventId)}/${encodeURIComponent(summary.marketId)}`;
@@ -84,8 +86,8 @@ function catalogItem(summary: PredictionMarketSummary): ChartSeriesCatalogItem |
   return {
     seriesId,
     label: summary.title.slice(0, 160),
-    description: `${summary.venue === "kalshi" ? "Kalshi" : "Polymarket"} · YES probability`,
-    detail: summary.venue === "kalshi" ? "Kalshi" : "Polymarket",
+    description: `${PREDICTION_VENUE_LABELS[summary.venue]} · YES probability`,
+    detail: PREDICTION_VENUE_LABELS[summary.venue],
     style: "area",
   };
 }
@@ -95,6 +97,8 @@ async function catalog(
   limit = 8,
   signal?: AbortSignal,
 ): Promise<ChartSeriesCatalogItem[]> {
+  // Only Polymarket and Kalshi resolve to a price history (predictionSeriesId),
+  // so the other venues are not searched here.
   const providers = [
     { id: "polymarket", load: () => loadPolymarketCatalog(query, "all", { limit, signal }) },
     { id: "kalshi", load: () => loadKalshiCatalog(query, "all", { limit, signal }) },

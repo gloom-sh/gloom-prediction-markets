@@ -34,7 +34,7 @@ export const predictionMarketsPlugin: GloomPlugin = {
   name: "Prediction Markets",
   version: "1.0.0",
   description:
-    "Browse prediction markets (Polymarket and Kalshi).",
+    "Browse prediction markets from Polymarket, Kalshi and five more venues.",
   homepage: "https://github.com/gloom-sh/gloom-prediction-markets",
   toggleable: true,
 
@@ -48,6 +48,11 @@ export const predictionMarketsPlugin: GloomPlugin = {
     "clob.polymarket.com",
     "data-api.polymarket.com",
     "api.elections.kalshi.com",
+    "api.gemini.com",
+    "api.limitless.exchange",
+    "api.crypto.com",
+    "gateway.polymarket.us",
+    "data.pascal.trade",
   ],
 
   cliCommands: [predictionMarketsCliCommand],
@@ -75,7 +80,7 @@ export const predictionMarketsPlugin: GloomPlugin = {
       paneId: PANE_ID,
       label: "Prediction Markets",
       description: "Open a new prediction markets browser pane",
-      keywords: ["prediction", "markets", "polymarket", "kalshi", "events"],
+      keywords: ["prediction", "markets", "polymarket", "kalshi", "pascal", "events"],
       shortcut: { prefix: "PM", argPlaceholder: "query", argKind: "text" },
       headless: predictionMarketsHeadless,
       createInstance: (_context, options) => {

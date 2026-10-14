@@ -14,10 +14,17 @@ export type PredictionKeyboardCommand =
   | "browse-new"
   | "browse-watchlist";
 
+export type PredictionQueryTarget = "search" | "venue" | "view";
+
 export interface PredictionKeyboardEventLike {
   name?: string;
   sequence?: string;
   shift?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+  super?: boolean;
+  alt?: boolean;
+  option?: boolean;
 }
 
 function matchesPredictionKey(
@@ -62,4 +69,40 @@ export function resolvePredictionKeyboardCommand(
   if (matchesPredictionKey(event, ["3"], ["3"])) return "browse-new";
   if (matchesPredictionKey(event, ["4"], ["4"])) return "browse-watchlist";
   return null;
+}
+
+function queryTargetOrder(hideVenue: boolean): readonly PredictionQueryTarget[] {
+  if (hideVenue) return ["search", "view"];
+  return ["search", "venue", "view"];
+}
+
+/** Tab order of the query row. Null is past either end, where Tab changes panes. */
+export function adjacentPredictionQueryTarget(
+  current: PredictionQueryTarget | null,
+  direction: -1 | 1,
+  hideVenue: boolean,
+): PredictionQueryTarget | null {
+  const order = queryTargetOrder(hideVenue);
+  if (current == null) return direction > 0 ? order[0] ?? null : null;
+  const index = order.indexOf(current);
+  if (index < 0) return direction > 0 ? order[0] ?? null : null;
+  return order[index + direction] ?? null;
+}
+
+/** Plain Left or Right. h and l stay with the categories. */
+export function predictionArrowDirection(
+  event: PredictionKeyboardEventLike,
+): "previous" | "next" | null {
+  if (event.shift || event.ctrl || event.meta || event.super || event.alt || event.option) return null;
+  const name = event.name?.toLowerCase();
+  if (name === "left" || event.sequence === "\u001b[D" || event.sequence === "\u001bOD") return "previous";
+  if (name === "right" || event.sequence === "\u001b[C" || event.sequence === "\u001bOC") return "next";
+  return null;
+}
+
+export function predictionTabDirection(event: PredictionKeyboardEventLike): -1 | 1 | null {
+  if (event.ctrl || event.meta || event.super || event.alt || event.option) return null;
+  const name = event.name?.toLowerCase();
+  if (name !== "tab" && event.sequence !== "\t") return null;
+  return event.shift ? -1 : 1;
 }

@@ -2,6 +2,7 @@ import { Box, Text } from "gloomberb/ui";
 import { SectionHeading } from "gloomberb/components";
 import { colors } from "gloomberb/theme";
 import { PredictionMarketChart } from "../chart";
+import type { SettlementMatch } from "../settlement";
 import type {
   PredictionHistoryRange,
   PredictionListRow,
@@ -9,6 +10,7 @@ import type {
   PredictionMarketSummary,
 } from "../types";
 import { PredictionMarketOutcomesView } from "./outcomes";
+import { PredictionSettlementBlock } from "./shared";
 
 export function PredictionMarketOverviewView({
   detail,
@@ -19,7 +21,11 @@ export function PredictionMarketOverviewView({
   loading,
   onHistoryRangeChange,
   onSelectMarket,
+  outcomeMarkets,
+  selectedMarketKey,
   selectedRow,
+  settlement,
+  showChart,
   showRangeTabs,
   summary,
 }: {
@@ -31,7 +37,11 @@ export function PredictionMarketOverviewView({
   loading: boolean;
   onHistoryRangeChange: (range: PredictionHistoryRange) => void;
   onSelectMarket: (marketKey: string) => void;
+  outcomeMarkets?: PredictionMarketSummary[];
+  selectedMarketKey: string;
   selectedRow: PredictionListRow | null;
+  settlement: SettlementMatch | null;
+  showChart: boolean;
   showRangeTabs: boolean;
   summary: PredictionMarketSummary;
 }) {
@@ -39,26 +49,32 @@ export function PredictionMarketOverviewView({
 
   return (
     <Box flexDirection="column" gap={1}>
-      {selectedRow?.kind === "group" && (
-        <PredictionMarketOutcomesView
-          detailWidth={detailWidth}
-          onSelectMarket={onSelectMarket}
-          selectedMarketKey={summary.key}
-          selectedRow={selectedRow}
+      <PredictionMarketOutcomesView
+        detailWidth={detailWidth}
+        liveMarketKey={summary.key}
+        liveYesPrice={summary.yesPrice}
+        markets={outcomeMarkets}
+        onSelectMarket={onSelectMarket}
+        selectedMarketKey={selectedMarketKey}
+        selectedRow={selectedRow}
+      />
+      {showChart && (
+        <PredictionMarketChart
+          history={detail?.history ?? []}
+          width={detailWidth}
+          height={Math.max(Math.floor(height * 0.36), 10)}
+          loading={loading}
+          focused={focused}
+          range={historyRange}
+          onRangeSelect={onHistoryRangeChange}
+          showRangeTabs={showRangeTabs}
         />
       )}
-      <PredictionMarketChart
-        history={detail?.history ?? []}
-        width={detailWidth}
-        height={Math.max(Math.floor(height * 0.36), 10)}
-        loading={loading}
-        focused={focused}
-        range={historyRange}
-        onRangeSelect={onHistoryRangeChange}
-        showRangeTabs={showRangeTabs}
-      />
       {/* The venue link is the footer's [o]pen, and the range move is in the
           chart header, so the overview ends with the description. */}
+      {settlement && (
+        <PredictionSettlementBlock match={settlement} width={textWidth} />
+      )}
       {summary.description && (
         <Box flexDirection="column" width={textWidth}>
           <SectionHeading title="Description" />

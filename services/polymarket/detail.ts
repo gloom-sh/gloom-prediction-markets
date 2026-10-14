@@ -10,9 +10,9 @@ import type {
   PredictionHistoryPoint,
   PredictionMarketDetail,
   PredictionMarketSummary,
-  PredictionSiblingMarket,
   PredictionTrade,
 } from "../../types";
+import { predictionSiblingFromSummary } from "../../sibling-summary";
 import {
   fetchJson,
   loadCachedPredictionResource,
@@ -129,7 +129,8 @@ async function resolvePolymarketSummary(
         description: summary.description || event.description || "",
         resolutionSource:
           summary.resolutionSource || event.resolutionSource || "",
-        openInterest: event.openInterest ?? summary.openInterest,
+        openInterest: summary.openInterest,
+        eventOpenInterest: event.openInterest ?? summary.eventOpenInterest,
       },
     };
   }
@@ -235,6 +236,16 @@ async function loadPolymarketTrades(
   );
 }
 
+export function polymarketBookErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const stripped = message
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+for\s*$/i, "")
+    .trim();
+  return stripped || "Order book unavailable.";
+}
+
 async function loadPolymarketBook(
   summary: PredictionMarketSummary,
 ): Promise<PredictionBookSnapshot> {
@@ -267,7 +278,7 @@ async function loadPolymarketBook(
           // Keep the failure: an empty book and a failed book look identical downstream.
           return {
             book: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: polymarketBookErrorText(error),
           };
         }
       };
@@ -317,7 +328,7 @@ export async function loadPolymarketDetail(
         loadPolymarketTrades(resolvedSummary),
       ]);
       const event = resolved.event;
-      const siblings: PredictionSiblingMarket[] = (event?.markets ?? [])
+      const siblings = (event?.markets ?? [])
         .map((market) =>
           event
             ? normalizePolymarketMarket(
@@ -329,13 +340,7 @@ export async function loadPolymarketDetail(
           (market): market is PredictionMarketSummary =>
             market != null && market.status === "open",
         )
-        .map((market) => ({
-          key: market.key,
-          marketId: market.marketId,
-          label: market.marketLabel,
-          yesPrice: market.yesPrice,
-          volume24h: market.volume24h,
-        }));
+        .map(predictionSiblingFromSummary);
 
       return {
         summary: {
@@ -348,7 +353,8 @@ export async function loadPolymarketDetail(
             resolvedSummary.description || event?.description || "",
           resolutionSource:
             resolvedSummary.resolutionSource || event?.resolutionSource || "",
-          openInterest: event?.openInterest ?? resolvedSummary.openInterest,
+          openInterest: resolvedSummary.openInterest,
+          eventOpenInterest: event?.openInterest ?? resolvedSummary.eventOpenInterest,
           tags:
             resolvedSummary.tags ?? resolvePolymarketEventTags(event),
         },

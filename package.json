@@ -1,7 +1,7 @@
 {
   "name": "gloom-prediction-markets",
   "version": "1.0.0",
-  "description": "Polymarket and Kalshi prediction markets for Gloom",
+  "description": "Polymarket, Kalshi and five more prediction venues for Gloom",
   "type": "module",
   "main": "index.tsx",
   "license": "MIT",

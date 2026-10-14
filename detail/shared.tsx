@@ -1,8 +1,30 @@
+import { SectionHeading } from "gloomberb/components";
+import { colors } from "gloomberb/theme";
+import { Box, Text } from "gloomberb/ui";
+import type { SettlementMatch } from "../settlement";
 import type {
   PredictionListRow,
   PredictionMarketDetail,
   PredictionMarketSummary,
 } from "../types";
+
+export function PredictionSettlementBlock({
+  match,
+  width,
+}: {
+  match: SettlementMatch;
+  width: number;
+}) {
+  const line = match.command === null ? match.label : `${match.label} (${match.command})`;
+  return (
+    <Box flexDirection="column" width={width}>
+      <SectionHeading title="Settlement" />
+      <Text fg={colors.text} width={width} wrapMode="word" wrapText>
+        {line}
+      </Text>
+    </Box>
+  );
+}
 
 export function truncatePredictionText(
   value: string,

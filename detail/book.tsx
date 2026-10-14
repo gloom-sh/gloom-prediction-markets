@@ -3,6 +3,10 @@ import { DataTableView, type DataTableColumn } from "gloomberb/components";
 import { colors } from "gloomberb/theme";
 import { formatNumber } from "gloomberb/utils";
 import { formatPredictionProbability } from "../metrics";
+import {
+  predictionBookErrorText,
+  visiblePredictionBookLevels,
+} from "../controller/live-updates";
 import type {
   PredictionBookLevel,
   PredictionMarketDetail,
@@ -34,7 +38,8 @@ function bookRowsForLevels({
   outcome: "yes" | "no";
   side: "buy" | "sell";
 }): BookRow[] {
-  return levels.slice(0, 10).map((level, index) => ({
+  const sideName = side === "buy" ? "bid" : "ask";
+  return visiblePredictionBookLevels(levels, sideName).map((level, index) => ({
     id: `${outcome}:${side}:${index}:${level.price}:${level.size}`,
     outcome,
     side,
@@ -70,10 +75,13 @@ function buildBookRows(detail: PredictionMarketDetail): BookRow[] {
 export function PredictionMarketBookView({
   detail,
   focused,
+  loading = false,
   width,
 }: {
   detail: PredictionMarketDetail;
   focused: boolean;
+  /** True while a refetch is in flight and this book still has no levels. */
+  loading?: boolean;
   width: number;
 }) {
   const rows = useMemo(() => buildBookRows(detail), [detail]);
@@ -136,8 +144,20 @@ export function PredictionMarketBookView({
             };
         }
       }}
-      emptyStateTitle={detail.book.error ? "Order book unavailable." : "No book levels."}
-      emptyStateHint={detail.book.error ?? "This venue did not return current order book depth."}
+      emptyStateTitle={
+        loading
+          ? "Loading order book."
+          : detail.book.error
+            ? "Order book unavailable."
+            : "No order book."
+      }
+      emptyStateHint={
+        loading
+          ? undefined
+          : detail.book.error
+            ? predictionBookErrorText(detail.book.error)
+            : "This venue did not return current order book depth."
+      }
     />
   );
 }

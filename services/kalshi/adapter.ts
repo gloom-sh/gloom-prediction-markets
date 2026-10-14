@@ -10,9 +10,9 @@ import type {
   PredictionHistoryPoint,
   PredictionMarketDetail,
   PredictionMarketSummary,
-  PredictionSiblingMarket,
   PredictionTrade,
 } from "../../types";
+import { predictionSiblingFromSummary } from "../../sibling-summary";
 import {
   fetchJson,
   loadCachedPredictionResource,
@@ -39,6 +39,7 @@ export { normalizeKalshiMarket } from "./normalize";
 const KALSHI_EVENT_PAGE_LIMIT = 200;
 const DEFAULT_KALSHI_EVENT_MAX_PAGES = 3;
 const SEARCH_KALSHI_EVENT_MAX_PAGES = 3;
+const KALSHI_CATEGORY_CURSOR_PREFIX = "kalshi-cat-cursors:v1:";
 const kalshiCursors = new Map<string, string | null>();
 
 function kalshiCursorKey(searchQuery: string, categoryId: PredictionCategoryId): string {
@@ -62,6 +63,61 @@ function kalshiSeriesTickerFromEvent(eventTicker: string | undefined): string | 
   if (!trimmed) return undefined;
   const withoutDateSuffix = trimmed.replace(/-[0-9].*$/, "");
   return withoutDateSuffix || trimmed;
+}
+
+function decodeKalshiCategoryCursors(cursor: string): Record<string, string> | null {
+  if (!cursor.startsWith(KALSHI_CATEGORY_CURSOR_PREFIX)) return null;
+  try {
+    const json = Buffer.from(cursor.slice(KALSHI_CATEGORY_CURSOR_PREFIX.length), "base64url").toString("utf8");
+    const parsed = JSON.parse(json) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const payload: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed) payload[key] = trimmed;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function kalshiCategoryStarts(
+  categories: readonly string[],
+  startCursor?: string,
+): Map<string, string | undefined> {
+  const starts = new Map<string, string | undefined>();
+  if (!startCursor) {
+    for (const category of categories) starts.set(category, undefined);
+    return starts;
+  }
+  const decoded = decodeKalshiCategoryCursors(startCursor);
+  if (decoded) {
+    for (const category of categories) {
+      const cursor = decoded[category];
+      if (cursor) starts.set(category, cursor);
+    }
+    return starts;
+  }
+  const only = categories.length === 1 ? categories[0] : undefined;
+  if (only) starts.set(only, startCursor);
+  return starts;
+}
+
+function encodeKalshiCategoryCursor(
+  categories: readonly string[],
+  next: ReadonlyMap<string, string>,
+): string | null {
+  const only = categories.length === 1 ? categories[0] : undefined;
+  if (only) return next.get(only) ?? null;
+  const payload: Record<string, string> = {};
+  for (const category of categories) {
+    const cursor = next.get(category);
+    if (cursor) payload[category] = cursor;
+  }
+  if (Object.keys(payload).length === 0) return null;
+  return KALSHI_CATEGORY_CURSOR_PREFIX + Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
 function buildKalshiCatalogUrl(cursor?: string, category?: string, limit = KALSHI_EVENT_PAGE_LIMIT): string {
@@ -107,9 +163,11 @@ async function fetchKalshiCatalogEventsForCategory(
   if (categories.length === 0) return await fetchKalshiCatalogEvents(maxPages, limit, signal, startCursor);
 
   const deduped = new Map<string, KalshiEventRecord>();
-  let nextCursor: string | null = null;
+  const starts = kalshiCategoryStarts(categories, startCursor);
+  const nextByCategory = new Map<string, string>();
   for (const category of categories) {
-    let cursor: string | undefined = startCursor;
+    if (!starts.has(category)) continue;
+    let cursor = starts.get(category);
     for (let page = 0; page < maxPages; page += 1) {
       const response = await fetchJson<KalshiEventsResponse>(
         buildKalshiCatalogUrl(cursor, category, limit),
@@ -122,10 +180,10 @@ async function fetchKalshiCatalogEventsForCategory(
       cursor = response.cursor?.trim() || undefined;
       if (!cursor) break;
     }
-    nextCursor = cursor ?? nextCursor;
+    if (cursor) nextByCategory.set(category, cursor);
   }
 
-  return { events: [...deduped.values()], nextCursor };
+  return { events: [...deduped.values()], nextCursor: encodeKalshiCategoryCursor(categories, nextByCategory) };
 }
 
 export async function loadKalshiCatalog(
@@ -149,6 +207,20 @@ export async function loadKalshiCatalog(
     },
     PREDICTION_CACHE_POLICIES.catalog,
   );
+}
+
+export async function loadKalshiCatalogPage(
+  categoryId: PredictionCategoryId,
+  cursor: string | null,
+  signal?: AbortSignal,
+): Promise<{ markets: PredictionMarketSummary[]; nextCursor: string | null }> {
+  const page = categoryId === "all"
+    ? await fetchKalshiCatalogEvents(1, KALSHI_EVENT_PAGE_LIMIT, signal, cursor ?? undefined)
+    : await fetchKalshiCatalogEventsForCategory(categoryId, 1, KALSHI_EVENT_PAGE_LIMIT, signal, cursor ?? undefined);
+  return {
+    markets: normalizeKalshiCatalog(page.events, "", categoryId),
+    nextCursor: page.nextCursor,
+  };
 }
 
 export async function loadMoreKalshiCatalog(
@@ -205,6 +277,17 @@ export async function resolveKalshiChartSummary(
   return summary;
 }
 
+function kalshiTradeSide(trade: { taker_side: "yes" | "no" }): "buy" | "sell" {
+  const record = trade as { taker_side: "yes" | "no" } & Record<string, unknown>;
+  for (const field of ["side", "action", "taker_action"]) {
+    const value = record[field];
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "buy" || normalized === "sell") return normalized;
+  }
+  return "buy";
+}
+
 async function loadKalshiTrades(
   summary: PredictionMarketSummary,
 ): Promise<PredictionTrade[]> {
@@ -218,7 +301,7 @@ async function loadKalshiTrades(
       return (response.trades ?? []).map((trade) => ({
         id: trade.trade_id,
         timestamp: new Date(trade.created_time).getTime(),
-        side: trade.taker_side === "no" ? "sell" : "buy",
+        side: kalshiTradeSide(trade),
         outcome: trade.taker_side === "no" ? "no" : "yes",
         price: parseFloatSafe(trade.yes_price_dollars) ?? 0,
         size: parseFloatSafe(trade.count_fp) ?? 0,
@@ -352,7 +435,7 @@ export async function loadKalshiDetail(
         loadKalshiSeriesSettlement(seriesTicker),
       ]);
       const eventMeta = event?.event;
-      const siblings: PredictionSiblingMarket[] = (event?.markets ?? [])
+      const normalized = (event?.markets ?? [])
         .map((market) =>
           normalizeKalshiMarket(market, {
             title: eventMeta?.title,
@@ -361,32 +444,28 @@ export async function loadKalshiDetail(
             sub_title: eventMeta?.sub_title,
           }),
         )
-        .filter((market): market is PredictionMarketSummary => market != null)
-        .map((market) => ({
-          key: market.key,
-          marketId: market.marketId,
-          label: market.marketLabel,
-          yesPrice: market.yesPrice,
-          volume24h: market.volume24h,
-        }));
+        .filter((market): market is PredictionMarketSummary => market != null);
+      const matched = normalized.find((market) => market.key === summary.key)
+        ?? normalized.find((market) => market.marketId === summary.marketId);
+      const base = matched ?? summary;
 
       return {
         summary: {
-          ...summary,
-          eventLabel: event?.event?.title ?? summary.eventLabel,
-          category: event?.event?.category ?? summary.category,
-          seriesTicker: event?.event?.series_ticker ?? seriesTicker,
-          resolutionSource: resolutionSource ?? summary.resolutionSource,
-          tags: summary.tags?.length
-            ? summary.tags
+          ...base,
+          eventLabel: event?.event?.title ?? base.eventLabel,
+          category: event?.event?.category ?? base.category,
+          seriesTicker: event?.event?.series_ticker ?? base.seriesTicker ?? seriesTicker,
+          resolutionSource: resolutionSource ?? base.resolutionSource,
+          tags: base.tags?.length
+            ? base.tags
             : event?.event?.category
               ? [event.event.category]
               : [],
         },
-        siblings,
+        siblings: normalized.map(predictionSiblingFromSummary),
         rules: [
-          summary.rulesPrimary ?? "",
-          summary.rulesSecondary ?? "",
+          base.rulesPrimary ?? "",
+          base.rulesSecondary ?? "",
         ].filter((value) => value.trim().length > 0),
         history,
         book,

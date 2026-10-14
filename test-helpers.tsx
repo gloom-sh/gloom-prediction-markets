@@ -558,6 +558,7 @@ export async function emitKeypress(
     sequence?: string;
     targetEditable?: boolean;
     shift?: boolean;
+    repeated?: boolean;
   },
 ) {
   await act(async () => {

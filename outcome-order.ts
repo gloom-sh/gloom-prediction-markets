@@ -1,7 +1,7 @@
 import type { PredictionMarketSummary } from "./types";
 
 export function sortPredictionOutcomeMarkets(
-  markets: PredictionMarketSummary[],
+  markets: readonly PredictionMarketSummary[],
 ): PredictionMarketSummary[] {
   return [...markets].sort((left, right) => {
     const yesDelta = (right.yesPrice ?? -1) - (left.yesPrice ?? -1);
@@ -13,7 +13,7 @@ export function sortPredictionOutcomeMarkets(
 }
 
 export function getPredictionTopOutcome(
-  markets: PredictionMarketSummary[],
+  markets: readonly PredictionMarketSummary[],
 ): PredictionMarketSummary | null {
   return sortPredictionOutcomeMarkets(markets)[0] ?? null;
 }

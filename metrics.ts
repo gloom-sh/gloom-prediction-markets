@@ -11,6 +11,7 @@ import type {
   PredictionVolumeUnit,
 } from "./types";
 import { matchesPredictionCategory } from "./categories";
+import { PREDICTION_VENUE_LABELS, venueInScope } from "./venues";
 
 const TEXT_SORT_COLUMNS = new Set([
   "market",
@@ -48,6 +49,15 @@ export function formatPredictionProbability(
   return `${formatNumber(cents, 1)}c`;
 }
 
+/** Percent the odds cell prints, rounded the same way as `formatPredictionPercent`. */
+export function displayedPredictionPercent(value: number): number {
+  const percent = value * 100;
+  if (Math.abs(percent) >= 10 || Math.abs(percent % 1) < 0.05) {
+    return Math.round(percent);
+  }
+  return Math.round(percent * 10) / 10;
+}
+
 export function formatPredictionPercent(
   value: number | null | undefined,
 ): string {
@@ -62,9 +72,10 @@ export function formatPredictionPercent(
 export function getPredictionProbabilityColor(
   value: number | null | undefined,
 ): string | undefined {
-  if (value == null) return undefined;
-  if (Math.abs(value - 0.5) < 0.005) return colors.neutral;
-  return value > 0.5 ? colors.positive : colors.negative;
+  if (value == null || !Number.isFinite(value)) return undefined;
+  const shown = displayedPredictionPercent(value);
+  if (shown >= 45 && shown <= 55) return undefined;
+  return shown > 55 ? colors.positive : colors.negative;
 }
 
 export function formatPredictionSpread(
@@ -205,9 +216,12 @@ export function filterPredictionMarkets(
 ): PredictionListRow[] {
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
+  // All shows Polymarket and Kalshi. A starred market from another venue is
+  // saved with the list, so only the watchlist view lists it under All.
+  const showEveryVenue = venueScope === "all" && browseTab === "watchlist";
   return markets.filter((market) => {
-    if (venueScope !== "all" && market.venue !== venueScope) return false;
-    if (!matchesPredictionCategory(market, categoryId)) return false;
+    if (!showEveryVenue && !venueInScope(market.venue, venueScope)) return false;
+    if (!normalizedQuery && !matchesPredictionCategory(market, categoryId)) return false;
     if (
       browseTab === "watchlist" &&
       !market.watchMarketKeys.some((marketKey) => watchlist.has(marketKey))
@@ -255,31 +269,41 @@ export function getPredictionColumnValue(
         text: watchlisted ? "★" : "·",
         color: watchlisted ? colors.positive : colors.textDim,
       };
-    case "market":
+    case "market": {
+      // The mark is one cell plus a space. Child rows use non-breaking spaces
+      // so the desktop cell keeps the indent and the names line up with the
+      // event title, not the mark.
+      const mark = `${market.kind === "group" && market.expanded ? "▾" : "▸"} `;
       return {
         text:
           market.kind === "group"
-            ? `${market.title} · ${market.marketCount} targets`
-            : market.title,
+            ? `${mark}${market.title} · ${market.marketCount} targets`
+            : market.parentKey
+              ? `${"\u00A0".repeat(mark.length)}${market.title}`
+              : market.title,
       };
+    }
     case "target":
       return { text: market.focusMarketLabel };
     case "venue":
-      return { text: market.venue === "polymarket" ? "Polymkt" : "Kalshi" };
-    case "yes":
-      // Always percentage then outcome label, so the cell never changes shape
-      // between grouped and single rows.
+      // The event row already names the venue. A contract under it is the outcome.
       return {
-        text: `${formatPredictionPercent(market.focusYesPrice)} ${market.focusMarketLabel}`.trim(),
+        text: market.parentKey
+          ? ""
+          : PREDICTION_VENUE_LABELS[market.venue],
+      };
+    case "yes":
+      // Nested contracts already name the outcome in MARKET, so this cell is
+      // the probability alone. Event and standalone rows keep the label.
+      return {
+        text: market.parentKey
+          ? formatPredictionPercent(market.focusYesPrice)
+          : `${formatPredictionPercent(market.focusYesPrice)} ${market.focusMarketLabel}`.trim(),
         color: getPredictionProbabilityColor(market.focusYesPrice),
       };
     case "spread":
-      return {
-        text:
-          market.kind === "group"
-            ? formatPredictionSpread(market.representative.spread)
-            : formatPredictionSpread(market.spread),
-      };
+      if (market.parentKey) return { text: "" };
+      return { text: formatPredictionSpread(market.spread) };
     case "vol_24h":
       return {
         text: formatPredictionMetric(market.volume24h, market.volume24hUnit),

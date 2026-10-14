@@ -1,7 +1,14 @@
 import type { ColumnConfig } from "gloomberb/types/config";
 import type { PredictionCategoryId } from "./categories";
 
-export type PredictionVenue = "polymarket" | "kalshi";
+export type PredictionVenue =
+  | "polymarket"
+  | "kalshi"
+  | "gemini"
+  | "limitless"
+  | "crypto-com"
+  | "polymarket-us"
+  | "pascal";
 export type PredictionVenueScope = "all" | PredictionVenue;
 export type PredictionBrowseTab = "top" | "ending" | "new" | "watchlist";
 export type PredictionDetailTab = "overview" | "chart" | "book" | "trades" | "rules";
@@ -26,7 +33,6 @@ export interface PredictionPaneSettings {
   columnIds: string[];
   hideTabs: boolean;
   lockedVenueScope: PredictionVenueScope;
-  hideHeader: boolean;
   defaultBrowseTab: PredictionBrowseTab;
 }
 
@@ -63,6 +69,16 @@ export interface PredictionMarketSummary {
   openInterestUnit: PredictionVolumeUnit;
   liquidity: number | null;
   liquidityUnit: PredictionVolumeUnit;
+  /**
+   * Open interest published once for the whole event. Polymarket does this.
+   * It is not this contract's open interest.
+   */
+  eventOpenInterest?: number | null;
+  /**
+   * 24h volume published once for the whole event. Polymarket does this.
+   * It is not this contract's volume.
+   */
+  eventVolume24h?: number | null;
   resolutionSource?: string;
   rulesPrimary?: string;
   rulesSecondary?: string;
@@ -77,6 +93,20 @@ export interface PredictionSiblingMarket {
   label: string;
   yesPrice: number | null;
   volume24h: number | null;
+  noPrice?: number | null;
+  yesBid?: number | null;
+  yesAsk?: number | null;
+  noBid?: number | null;
+  noAsk?: number | null;
+  spread?: number | null;
+  lastTradePrice?: number | null;
+  openInterest?: number | null;
+  url?: string;
+  yesTokenId?: string;
+  noTokenId?: string;
+  conditionId?: string;
+  eventTicker?: string;
+  seriesTicker?: string;
 }
 
 export interface PredictionHistoryPoint {
@@ -129,6 +159,8 @@ export interface PredictionColumnDef extends ColumnConfig {
 interface PredictionListRowBase {
   key: string;
   kind: "market" | "group";
+  /** Set on a market shown under an expanded event. */
+  parentKey?: string;
   venue: PredictionVenue;
   representative: PredictionMarketSummary;
   focusMarketKey: string;
@@ -168,6 +200,7 @@ export interface PredictionSingleListRow extends PredictionListRowBase {
 
 export interface PredictionGroupedListRow extends PredictionListRowBase {
   kind: "group";
+  expanded?: boolean;
   marketCount: number;
   yesPriceLow: number | null;
   yesPriceHigh: number | null;
