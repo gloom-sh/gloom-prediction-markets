@@ -24,9 +24,20 @@ import type {
 export { normalizePolymarketMarket } from "./normalize";
 export { loadPolymarketDetail } from "./detail";
 
-const POLYMARKET_CATALOG_OFFSETS = [0, 200, 400];
-const POLYMARKET_CATEGORY_OFFSETS = [0, 200];
-const POLYMARKET_PAGE_SIZE = 200;
+// Gamma sends at most 100 events a page whatever `limit` says, and the busiest events carry up to
+// 900 KB of rules text each, so a page of 100 was 9 to 15 MB. The web proxy answers at most 5 MB.
+// Ten events a page stays under 3 MB, and the first screens only need the top of the volume order.
+const POLYMARKET_PAGE_SIZE = 10;
+const POLYMARKET_CATALOG_PAGES = 12;
+const POLYMARKET_CATEGORY_PAGES = 4;
+const POLYMARKET_MORE_PAGES = 4;
+
+function pageOffsets(pages: number, from = 0): number[] {
+  return Array.from({ length: pages }, (_, index) => from + index * POLYMARKET_PAGE_SIZE);
+}
+
+const POLYMARKET_CATALOG_OFFSETS = pageOffsets(POLYMARKET_CATALOG_PAGES);
+const POLYMARKET_CATEGORY_OFFSETS = pageOffsets(POLYMARKET_CATEGORY_PAGES);
 const polymarketNextOffset = new Map<PredictionCategoryId, number>();
 
 interface PolymarketPageBatch {
@@ -80,7 +91,7 @@ export function nextPolymarketCatalogOffset(
   return (offsets.at(-1) ?? 0) + POLYMARKET_PAGE_SIZE;
 }
 
-function buildPolymarketCatalogUrl(offset: number, tagSlug?: string, limit = 200): string {
+function buildPolymarketCatalogUrl(offset: number, tagSlug?: string, limit = POLYMARKET_PAGE_SIZE): string {
   const url = new URL("https://gamma-api.polymarket.com/events");
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("offset", String(offset));
@@ -106,7 +117,7 @@ function buildPolymarketSearchUrl(query: string, limit = 40): string {
 async function loadPolymarketCatalogPages(
   offsets: number[],
   tagSlug?: string,
-  limit = 200,
+  limit = POLYMARKET_PAGE_SIZE,
   signal?: AbortSignal,
 ): Promise<PolymarketPageBatch> {
   const results = await Promise.allSettled(
@@ -161,7 +172,10 @@ export async function loadPolymarketCatalog(
 ): Promise<PredictionMarketSummary[]> {
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const requestedLimit = Math.max(1, Math.min(200, options.limit ?? 200));
-  const pageLimit = Math.max(20, requestedLimit);
+  const pageLimit = POLYMARKET_PAGE_SIZE;
+  // An explicit limit (the CLI report, the chart composer) reads that many events, as one request used
+  // to, but never more than Gamma sends in a page. It is not a browse, so it leaves the resume offset alone.
+  const limitedOffsets = pageOffsets(Math.ceil(Math.min(requestedLimit, 100) / POLYMARKET_PAGE_SIZE));
   return await loadCachedPredictionResource(
     "catalog",
     `${buildPredictionCatalogResourceKey("polymarket", categoryId, normalizedQuery)}:${requestedLimit}`,
@@ -172,7 +186,7 @@ export async function loadPolymarketCatalog(
 
       if (categoryId !== "all") {
         const tagSlugs = getPolymarketCategoryTagSlugs(categoryId);
-        const planned = options.limit ? [0] : POLYMARKET_CATEGORY_OFFSETS;
+        const planned = options.limit ? limitedOffsets : POLYMARKET_CATEGORY_OFFSETS;
         const categoryPages = await Promise.all(
           tagSlugs.map((tagSlug) =>
             loadPolymarketCatalogPages(
@@ -189,19 +203,19 @@ export async function loadPolymarketCatalog(
           categoryId,
         );
         if (categorized.length > 0) {
-          rememberPolymarketResume(categoryId, planned, categoryPages, pageLimit);
+          if (!options.limit) rememberPolymarketResume(categoryId, planned, categoryPages, pageLimit);
           return categorized;
         }
       }
 
-      const planned = options.limit ? [0] : POLYMARKET_CATALOG_OFFSETS;
+      const planned = options.limit ? limitedOffsets : POLYMARKET_CATALOG_OFFSETS;
       const pages = await loadPolymarketCatalogPages(
         planned,
         undefined,
         pageLimit,
         options.signal,
       );
-      rememberPolymarketResume(categoryId, planned, [pages], pageLimit);
+      if (!options.limit) rememberPolymarketResume(categoryId, planned, [pages], pageLimit);
       return normalizePolymarketCatalog(pages.events, "", categoryId);
     },
     PREDICTION_CACHE_POLICIES.catalog,
@@ -218,15 +232,25 @@ export async function loadMorePolymarketCatalog(
     return { markets: [], hasMore: false, nextOffset: offset };
   }
   const tagSlugs = categoryId === "all" ? [undefined] : getPolymarketCategoryTagSlugs(categoryId);
+  const planned = pageOffsets(POLYMARKET_MORE_PAGES, offset);
+  const end = offset + planned.length * POLYMARKET_PAGE_SIZE;
   const pages = await Promise.all(
     tagSlugs.map((tagSlug) =>
-      loadPolymarketCatalogPages([offset], tagSlug, POLYMARKET_PAGE_SIZE, signal).catch(() => emptyPolymarketPages()),
+      loadPolymarketCatalogPages(planned, tagSlug, POLYMARKET_PAGE_SIZE, signal).catch(() => emptyPolymarketPages()),
     ),
   );
   const raw = pages.flatMap((page) => page.events);
+  // A page that failed is where the next load starts, so it is retried rather than skipped.
+  const resumes = pages.flatMap((page) => {
+    const resume = resumeAfterRetainedPages(planned, page.retainedOffsets, POLYMARKET_PAGE_SIZE);
+    return resume == null ? [] : [resume];
+  });
+  const nextOffset = resumes.length > 0 ? Math.min(...resumes) : end;
   return {
     markets: normalizePolymarketCatalog(raw, "", categoryId),
-    hasMore: raw.length >= POLYMARKET_PAGE_SIZE,
-    nextOffset: offset + POLYMARKET_PAGE_SIZE,
+    hasMore: resumes.length > 0 && (
+      nextOffset < end || pages.some((page) => page.events.length >= planned.length * POLYMARKET_PAGE_SIZE)
+    ),
+    nextOffset,
   };
 }

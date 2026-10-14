@@ -16,7 +16,7 @@ import { useAutoRefresh } from "gloomberb/react";
 import { getCachedPredictionResource } from "../services/fetch";
 import { loadCryptoComCatalog } from "../services/crypto-com/adapter";
 import { loadGeminiCatalog } from "../services/gemini/adapter";
-import { loadKalshiCatalogPage, loadMoreKalshiCatalog } from "../services/kalshi/adapter";
+import { KALSHI_BROWSE_PAGES, loadKalshiCatalogPage, loadMoreKalshiCatalog } from "../services/kalshi/adapter";
 import { streamKalshiSeriesSearch } from "../services/kalshi/series-search";
 import { loadLimitlessCatalog, loadLimitlessCatalogPage } from "../services/limitless/adapter";
 import { loadMorePolymarketCatalog, loadPolymarketCatalog, loadPolymarketSearchHits, nextPolymarketCatalogOffset } from "../services/polymarket/adapter";
@@ -440,7 +440,7 @@ export function usePredictionCatalogData({
       try {
         let combined: PredictionMarketSummary[] = [];
         let cursor: string | null = null;
-        for (let page = 0; page < 3; page += 1) {
+        for (let page = 0; page < KALSHI_BROWSE_PAGES; page += 1) {
           const next = await loadCatalogWithRetry(
             () => loadKalshiCatalogPage(category, cursor, signal),
             signal,
@@ -637,7 +637,8 @@ export function usePredictionCatalogData({
   };
 }
 
-const SEARCH_POLYMARKET_EXTRA_PAGES = 4;
+// Each call reads a batch of four pages, so two batches scan the 80 events after the first screens.
+const SEARCH_POLYMARKET_EXTRA_PAGES = 2;
 const SEARCH_LIMITLESS_FIRST_PAGE = 1;
 const SEARCH_LIMITLESS_LAST_PAGE = 12;
 

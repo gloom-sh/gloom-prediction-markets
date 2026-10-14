@@ -5,6 +5,7 @@ import {
   loadKalshiDetail,
   loadMoreKalshiCatalog,
 } from "./adapter";
+import { fetchKalshiMarketQuotes } from "./quotes";
 
 const originalFetch = globalThis.fetch;
 const CATEGORY_CURSOR_PREFIX = "kalshi-cat-cursors:v1:";
@@ -196,6 +197,39 @@ function tradeSummary(): PredictionMarketSummary {
     liquidityUnit: "usd",
   };
 }
+
+describe("kalshi request sizes for the web proxy", () => {
+  test("catalog pages ask for 100 events, half of what made a page 3.8 MB", async () => {
+    const urls: URL[] = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      urls.push(new URL(String(input)));
+      return json({ events: [], cursor: "" });
+    }) as typeof fetch;
+
+    await loadKalshiCatalogPage("all", null);
+    await loadMoreKalshiCatalog("", "all", "next");
+    await loadKalshiCatalogPage("politics", null);
+
+    expect(urls.length).toBeGreaterThanOrEqual(3);
+    expect(urls.every((url) => url.searchParams.get("limit") === "100")).toBe(true);
+  });
+
+  test("watchlist quotes split into URLs under the proxy's 2,048 characters", async () => {
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      urls.push(String(input));
+      return json({ markets: [] });
+    }) as typeof fetch;
+    const tickers = Array.from({ length: 100 }, (_, index) => `KXNBAGAME-26OCT14LALDEN-${String(index).padStart(3, "0")}`);
+
+    await fetchKalshiMarketQuotes(tickers);
+
+    expect(urls.length).toBeGreaterThan(1);
+    expect(urls.every((url) => url.length < 1_900)).toBe(true);
+    const asked = urls.flatMap((url) => new URL(url).searchParams.get("tickers")?.split(",") ?? []);
+    expect(asked).toEqual(tickers);
+  });
+});
 
 describe("kalshi trades", () => {
   test("maps taker_side onto the outcome and does not treat no as a sell", async () => {

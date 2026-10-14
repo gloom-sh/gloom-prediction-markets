@@ -36,9 +36,12 @@ import type {
 
 export { normalizeKalshiMarket } from "./normalize";
 
-const KALSHI_EVENT_PAGE_LIMIT = 200;
-const DEFAULT_KALSHI_EVENT_MAX_PAGES = 3;
-const SEARCH_KALSHI_EVENT_MAX_PAGES = 3;
+// A 200-event page was up to 3.8 MB and the web proxy answers at most 5 MB, so pages are half
+// that and a browse reads twice as many of them: the same 600 events.
+const KALSHI_EVENT_PAGE_LIMIT = 100;
+const KALSHI_CATALOG_LIMIT = 200;
+export const KALSHI_BROWSE_PAGES = 6;
+const SEARCH_KALSHI_EVENT_MAX_PAGES = 6;
 const KALSHI_CATEGORY_CURSOR_PREFIX = "kalshi-cat-cursors:v1:";
 const kalshiCursors = new Map<string, string | null>();
 
@@ -131,7 +134,7 @@ function buildKalshiCatalogUrl(cursor?: string, category?: string, limit = KALSH
 }
 
 async function fetchKalshiCatalogEvents(
-  maxPages = DEFAULT_KALSHI_EVENT_MAX_PAGES,
+  maxPages = KALSHI_BROWSE_PAGES,
   limit = KALSHI_EVENT_PAGE_LIMIT,
   signal?: AbortSignal,
   startCursor?: string,
@@ -154,7 +157,7 @@ async function fetchKalshiCatalogEvents(
 
 async function fetchKalshiCatalogEventsForCategory(
   categoryId: PredictionCategoryId,
-  maxPages = DEFAULT_KALSHI_EVENT_MAX_PAGES,
+  maxPages = KALSHI_BROWSE_PAGES,
   limit = KALSHI_EVENT_PAGE_LIMIT,
   signal?: AbortSignal,
   startCursor?: string,
@@ -192,9 +195,11 @@ export async function loadKalshiCatalog(
   options: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<PredictionMarketSummary[]> {
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const requestedLimit = Math.max(1, Math.min(KALSHI_EVENT_PAGE_LIMIT, options.limit ?? KALSHI_EVENT_PAGE_LIMIT));
-  const pageLimit = Math.max(20, requestedLimit);
-  const maxPages = options.limit ? 1 : normalizedQuery ? SEARCH_KALSHI_EVENT_MAX_PAGES : DEFAULT_KALSHI_EVENT_MAX_PAGES;
+  const requestedLimit = Math.max(1, Math.min(KALSHI_CATALOG_LIMIT, options.limit ?? KALSHI_CATALOG_LIMIT));
+  const pageLimit = Math.min(KALSHI_EVENT_PAGE_LIMIT, Math.max(20, requestedLimit));
+  const maxPages = options.limit
+    ? Math.ceil(requestedLimit / pageLimit)
+    : normalizedQuery ? SEARCH_KALSHI_EVENT_MAX_PAGES : KALSHI_BROWSE_PAGES;
   return await loadCachedPredictionResource(
     "catalog",
     `${buildPredictionCatalogResourceKey("kalshi", categoryId, normalizedQuery)}:${requestedLimit}`,

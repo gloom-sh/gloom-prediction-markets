@@ -135,7 +135,7 @@ async function loadSeriesEvents(
     url.searchParams.set("series_ticker", seriesTicker);
     url.searchParams.set("status", "open");
     url.searchParams.set("with_nested_markets", "true");
-    url.searchParams.set("limit", "200");
+    url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("cursor", cursor);
     const response = await fetchJson<KalshiEventsResponse>(url.toString(), signal);
     markets.push(...normalizeKalshiCatalog(response.events ?? [], "", categoryId));
@@ -199,7 +199,14 @@ export async function streamKalshiSeriesSearch(
     }
   }
   const rankQuery = eventTicker?.split("-")[0] ?? seriesTicker ?? query;
-  const series = rankKalshiSeries(await loadKalshiSeriesList(searchCategory, signal), rankQuery);
+  let seriesList: KalshiSeriesListItem[];
+  try {
+    seriesList = await loadKalshiSeriesList(searchCategory, signal);
+  } catch {
+    // Ticker and link lookups above already published; the list only adds name matches.
+    return emitted;
+  }
+  const series = rankKalshiSeries(seriesList, rankQuery);
   for (const match of series) {
     if (signal.aborted) return emitted;
     if (loadedSeries.has(match.ticker)) continue;
