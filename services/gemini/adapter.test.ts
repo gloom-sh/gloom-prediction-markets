@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MemoryPluginPersistence } from "gloomberb/test-support";
 import { attachPredictionMarketsPersistence } from "../fetch";
-import { loadGeminiCatalog } from "./adapter";
+import {
+  GEMINI_BROWSE_PAGE_SIZE,
+  GEMINI_SEARCH_PAGE_SIZE,
+  loadGeminiCatalog,
+  MAX_GEMINI_BROWSE_PAGES,
+  MAX_GEMINI_SEARCH_PAGES,
+} from "./adapter";
 import type { GeminiEventRecord, GeminiEventsResponse } from "./types";
 
 const originalFetch = globalThis.fetch;
@@ -51,7 +57,7 @@ describe("gemini catalog paging", () => {
       const offset = url.searchParams.get("offset") ?? "";
       offsets.push(offset);
       expect(url.searchParams.get("status")).toBe("active");
-      expect(url.searchParams.get("limit")).toBe("100");
+      expect(url.searchParams.get("limit")).toBe("5");
       expect(url.searchParams.get("search")).toBeNull();
       const index = Number(offset);
       if (index >= 3) return json(page([], index, 3));
@@ -62,6 +68,37 @@ describe("gemini catalog paging", () => {
 
     expect(offsets).toEqual(["0", "1", "2"]);
     expect(markets.map((market) => market.marketId)).toEqual(["G-0", "G-1", "G-2"]);
+  });
+
+  test("browse reads twenty pages of five events and a search reads pages of one hundred", async () => {
+    expect([GEMINI_BROWSE_PAGE_SIZE, MAX_GEMINI_BROWSE_PAGES, GEMINI_SEARCH_PAGE_SIZE, MAX_GEMINI_SEARCH_PAGES]).toEqual([5, 20, 100, 10]);
+
+    const browse: Array<[string | null, string | null]> = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      browse.push([url.searchParams.get("limit"), url.searchParams.get("offset")]);
+      const events = Array.from({ length: 5 }, (_, index) => geminiEvent(`B-${offset + index}`));
+      return json(page(events, offset, 1_000, 5));
+    }) as typeof fetch;
+
+    const markets = await loadGeminiCatalog("", "all");
+    expect(browse).toEqual(Array.from({ length: 20 }, (_, index) => ["5", String(index * 5)]));
+    expect(markets).toHaveLength(100);
+
+    const search: Array<[string | null, string | null, string | null]> = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      search.push([url.searchParams.get("limit"), url.searchParams.get("offset"), url.searchParams.get("search")]);
+      const events = Array.from({ length: 100 }, (_, index) => geminiEvent(`S-${offset + index}`, `Fed ${offset + index}`));
+      return json(page(events, offset, 1_000, 100));
+    }) as typeof fetch;
+
+    await loadGeminiCatalog("fed", "all");
+    expect(search).toHaveLength(10);
+    expect(search[0]).toEqual(["100", "0", "fed"]);
+    expect(search[9]).toEqual(["100", "900", "fed"]);
   });
 
   test("keeps the search param while paging", async () => {

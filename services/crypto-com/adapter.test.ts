@@ -92,6 +92,28 @@ describe("crypto.com event paging", () => {
     expect(calls.filter((url) => url.includes("/get-events"))).toHaveLength(1);
   });
 
+  test("ticker lookups stay under the proxy's 2,048 character URL limit", async () => {
+    const symbols = Array.from({ length: 200 }, (_, index) => `NX.F.OPT.TENNIS-${String(index).padStart(4, "0")}-261014-M.O.1.2.20261231`);
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: Request | string | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/get-events")) return json(eventPage(["Tennis"], null));
+      if (url.includes("/get-instruments")) {
+        return json({ code: 0, result: { data: symbols.map((symbol) => ({ symbol, underlying_symbol: "Tennis" })) } });
+      }
+      return json({ code: 0, result: { data: [] } });
+    }) as typeof fetch;
+
+    await loadCryptoComCatalog("", "all");
+    const tickerUrls = urls.filter((url) => url.includes("/get-tickers"));
+    const asked = tickerUrls.flatMap((url) => new URL(url).searchParams.get("instrument_names")?.split(",") ?? []);
+
+    expect(tickerUrls.length).toBeGreaterThan(4);
+    expect(tickerUrls.every((url) => url.length < 1_900)).toBe(true);
+    expect(asked).toEqual(symbols);
+  });
+
   test("stops when the next cursor repeats", async () => {
     const calls = installFetch((url) => {
       const cursor = url.searchParams.get("cursor");

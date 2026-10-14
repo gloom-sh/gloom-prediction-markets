@@ -12,13 +12,19 @@ import {
 import { filterGeminiCatalog, normalizeGeminiCatalog } from "./normalize";
 import type { GeminiEventRecord, GeminiEventsResponse } from "./types";
 
-const GEMINI_EVENT_LIMIT = 100;
-const MAX_GEMINI_EVENT_PAGES = 10;
+// The events endpoint has no sort and no field selection, and a few events are close to 1 MB each.
+// A page of 100 was up to 12 MB and a page of 10 still reached 4.3 MB, while the web proxy answers
+// at most 5 MB, so the whole-venue list reads the first 100 events as twenty pages of five. A search
+// matches few events and stays small at 100 a page, and it is how the rest of the venue is reached.
+export const GEMINI_BROWSE_PAGE_SIZE = 5;
+export const MAX_GEMINI_BROWSE_PAGES = 20;
+export const GEMINI_SEARCH_PAGE_SIZE = 100;
+export const MAX_GEMINI_SEARCH_PAGES = 10;
 
-function buildGeminiCatalogUrl(searchQuery: string, offset: number): string {
+function buildGeminiCatalogUrl(searchQuery: string, offset: number, pageSize: number): string {
   const url = new URL("https://api.gemini.com/v1/prediction-markets/events");
   url.searchParams.set("status", "active");
-  url.searchParams.set("limit", String(GEMINI_EVENT_LIMIT));
+  url.searchParams.set("limit", String(pageSize));
   url.searchParams.set("offset", String(offset));
   if (searchQuery.length > 0) url.searchParams.set("search", searchQuery);
   return url.toString();
@@ -35,17 +41,19 @@ function geminiEventIdentity(event: GeminiEventRecord): string {
 
 async function fetchGeminiEvents(
   searchQuery: string,
+  pageSize: number,
+  maxPages: number,
   signal?: AbortSignal,
 ): Promise<GeminiEventRecord[]> {
   const events: GeminiEventRecord[] = [];
   const seenOffsets = new Set<number>();
   const seenIds = new Set<string>();
   let offset = 0;
-  for (let page = 0; page < MAX_GEMINI_EVENT_PAGES; page += 1) {
+  for (let page = 0; page < maxPages; page += 1) {
     if (seenOffsets.has(offset)) break;
     seenOffsets.add(offset);
     const response = await fetchJson<GeminiEventsResponse>(
-      buildGeminiCatalogUrl(searchQuery, offset),
+      buildGeminiCatalogUrl(searchQuery, offset, pageSize),
       signal,
     );
     const data = Array.isArray(response.data) ? response.data : [];
@@ -61,7 +69,7 @@ async function fetchGeminiEvents(
       fresh += 1;
     }
     if (fresh === 0) break;
-    const pageLimit = readCount(response.pagination?.limit) ?? GEMINI_EVENT_LIMIT;
+    const pageLimit = readCount(response.pagination?.limit) ?? pageSize;
     const pageOffset = readCount(response.pagination?.offset) ?? offset;
     const total = readCount(response.pagination?.total);
     const nextOffset = pageOffset + data.length;
@@ -89,7 +97,7 @@ export async function loadGeminiCatalog(
         "catalog",
         resourceKey,
         async () => normalizeGeminiCatalog(
-          await fetchGeminiEvents(trimmedQuery, options?.signal),
+          await fetchGeminiEvents(trimmedQuery, GEMINI_SEARCH_PAGE_SIZE, MAX_GEMINI_SEARCH_PAGES, options?.signal),
           normalizedQuery,
         ),
         PREDICTION_CACHE_POLICIES.catalog,
@@ -97,7 +105,7 @@ export async function loadGeminiCatalog(
     : await loadSharedPredictionResource(
         "catalog",
         resourceKey,
-        async () => normalizeGeminiCatalog(await fetchGeminiEvents("")),
+        async () => normalizeGeminiCatalog(await fetchGeminiEvents("", GEMINI_BROWSE_PAGE_SIZE, MAX_GEMINI_BROWSE_PAGES)),
         PREDICTION_CACHE_POLICIES.catalog,
         options?.signal,
       );

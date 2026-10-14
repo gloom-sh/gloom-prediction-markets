@@ -1,6 +1,7 @@
 import { buildPredictionCatalogResourceKey } from "../../cache";
 import type { PredictionCategoryId, PredictionMarketSummary } from "../../types";
 import {
+  chunkForUrl,
   fetchJson,
   loadSharedPredictionResource,
   PREDICTION_CACHE_POLICIES,
@@ -21,6 +22,7 @@ const INSTRUMENT_PAGE_LIMIT = 1000;
 const MAX_INSTRUMENT_PAGES = 2;
 const MAX_INSTRUMENTS = 1000;
 const TICKER_BATCH = 50;
+const TICKER_URL_BASE = `${CRYPTO_COM_PUBLIC}/get-tickers?instrument_names=`;
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const batches: T[][] = [];
@@ -87,7 +89,7 @@ async function fetchInstruments(eventSymbols: string[], signal?: AbortSignal): P
 async function fetchTickers(symbols: string[], signal?: AbortSignal): Promise<CryptoComTicker[]> {
   const tickers: CryptoComTicker[] = [];
   const unique = [...new Set(symbols.map((symbol) => symbol.trim()).filter((symbol) => symbol.length > 0))];
-  for (const batch of chunk(unique, TICKER_BATCH)) {
+  for (const batch of chunkForUrl(unique, TICKER_URL_BASE, TICKER_BATCH)) {
     const url = new URL(`${CRYPTO_COM_PUBLIC}/get-tickers`);
     url.searchParams.set("instrument_names", batch.join(","));
     const href = url.toString();

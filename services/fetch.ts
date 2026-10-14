@@ -185,6 +185,31 @@ function summarizePredictionFetchUrl(url: string): string {
   }
 }
 
+/** The web proxy refuses a target URL over 2,048 characters. Batched lookups stay under this. */
+const MAX_REQUEST_URL_LENGTH = 1_800;
+
+/**
+ * Splits ids into batches that fit one comma-separated query parameter. `urlBase` is the
+ * request URL up to and including the parameter name, plus anything that follows the list.
+ */
+export function chunkForUrl(items: readonly string[], urlBase: string, maxItems = Number.POSITIVE_INFINITY): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let length = urlBase.length;
+  for (const item of items) {
+    const size = encodeURIComponent(item).length + 3;
+    if (batch.length > 0 && (batch.length >= maxItems || length + size > MAX_REQUEST_URL_LENGTH)) {
+      batches.push(batch);
+      batch = [];
+      length = urlBase.length;
+    }
+    batch.push(item);
+    length += size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 export function parseFloatSafe(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string" || value.trim().length === 0) return null;

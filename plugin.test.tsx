@@ -543,7 +543,7 @@ describe("prediction markets plugin registration and services", () => {
     globalThis.fetch = (async (input: Request | string | URL) => {
       const url = String(input);
       if (url.includes("gamma-api.polymarket.com/events?")) {
-        if (url.includes("offset=200")) {
+        if (url.includes("offset=10&")) {
           resetFetchCount += 1;
           throw Object.assign(
             new Error("The socket connection was closed unexpectedly."),
