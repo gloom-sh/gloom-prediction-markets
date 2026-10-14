@@ -5,7 +5,8 @@ import {
   GEMINI_BROWSE_PAGE_SIZE,
   GEMINI_SEARCH_PAGE_SIZE,
   loadGeminiCatalog,
-  MAX_GEMINI_EVENT_PAGES,
+  MAX_GEMINI_BROWSE_PAGES,
+  MAX_GEMINI_SEARCH_PAGES,
 } from "./adapter";
 import type { GeminiEventRecord, GeminiEventsResponse } from "./types";
 
@@ -56,7 +57,7 @@ describe("gemini catalog paging", () => {
       const offset = url.searchParams.get("offset") ?? "";
       offsets.push(offset);
       expect(url.searchParams.get("status")).toBe("active");
-      expect(url.searchParams.get("limit")).toBe("10");
+      expect(url.searchParams.get("limit")).toBe("5");
       expect(url.searchParams.get("search")).toBeNull();
       const index = Number(offset);
       if (index >= 3) return json(page([], index, 3));
@@ -69,20 +70,20 @@ describe("gemini catalog paging", () => {
     expect(markets.map((market) => market.marketId)).toEqual(["G-0", "G-1", "G-2"]);
   });
 
-  test("browse reads ten pages of ten events and a search reads pages of one hundred", async () => {
-    expect([GEMINI_BROWSE_PAGE_SIZE, GEMINI_SEARCH_PAGE_SIZE, MAX_GEMINI_EVENT_PAGES]).toEqual([10, 100, 10]);
+  test("browse reads twenty pages of five events and a search reads pages of one hundred", async () => {
+    expect([GEMINI_BROWSE_PAGE_SIZE, MAX_GEMINI_BROWSE_PAGES, GEMINI_SEARCH_PAGE_SIZE, MAX_GEMINI_SEARCH_PAGES]).toEqual([5, 20, 100, 10]);
 
     const browse: Array<[string | null, string | null]> = [];
     globalThis.fetch = (async (input: Request | string | URL) => {
       const url = new URL(String(input));
       const offset = Number(url.searchParams.get("offset") ?? "0");
       browse.push([url.searchParams.get("limit"), url.searchParams.get("offset")]);
-      const events = Array.from({ length: 10 }, (_, index) => geminiEvent(`B-${offset + index}`));
-      return json(page(events, offset, 1_000, 10));
+      const events = Array.from({ length: 5 }, (_, index) => geminiEvent(`B-${offset + index}`));
+      return json(page(events, offset, 1_000, 5));
     }) as typeof fetch;
 
     const markets = await loadGeminiCatalog("", "all");
-    expect(browse).toEqual(Array.from({ length: 10 }, (_, index) => ["10", String(index * 10)]));
+    expect(browse).toEqual(Array.from({ length: 20 }, (_, index) => ["5", String(index * 5)]));
     expect(markets).toHaveLength(100);
 
     const search: Array<[string | null, string | null, string | null]> = [];
