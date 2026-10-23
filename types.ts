@@ -53,6 +53,12 @@ export interface PredictionMarketSummary {
   description: string;
   endsAt: string | null;
   updatedAt: string | null;
+  /**
+   * When the venue last refreshed the market's prices, where it says so
+   * (Polymarket's record). Absent where the prices are read live with each
+   * request (Kalshi), and never the day the market opened.
+   */
+  refreshedAt?: string | null;
   yesPrice: number | null;
   noPrice: number | null;
   yesBid: number | null;
