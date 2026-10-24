@@ -120,12 +120,11 @@ export function normalizePolymarketMarket(
       : "https://polymarket.com",
     description: record.description ?? event?.description ?? "",
     endsAt: record.endDate ?? event?.endDate ?? null,
-    updatedAt:
-      record.updatedAt ??
-      event?.updatedAt ??
-      record.createdAt ??
-      event?.startDate ??
-      null,
+    // When Gamma last refreshed the record. A search hit carries none, and the day the
+    // market was created or its event started is no refresh: its prices are as of the request.
+    updatedAt: record.updatedAt ?? event?.updatedAt ?? null,
+    refreshedAt: record.updatedAt ?? event?.updatedAt ?? null,
+    createdAt: record.createdAt ?? event?.startDate ?? null,
     yesPrice,
     noPrice,
     yesBid: record.bestBid ?? null,

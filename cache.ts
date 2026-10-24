@@ -133,6 +133,7 @@ function sameSummaryForCatalog(
     left.status === right.status &&
     left.endsAt === right.endsAt &&
     left.updatedAt === right.updatedAt &&
+    left.createdAt === right.createdAt &&
     sameNullableNumber(left.yesPrice, right.yesPrice) &&
     sameNullableNumber(left.noPrice, right.noPrice) &&
     sameNullableNumber(left.yesBid, right.yesBid) &&

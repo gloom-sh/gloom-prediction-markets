@@ -180,6 +180,7 @@ function buildSingleRow(summary: PredictionMarketSummary): PredictionSingleListR
     description: summary.description,
     endsAt: summary.endsAt,
     updatedAt: summary.updatedAt,
+    createdAt: summary.createdAt ?? null,
     yesPrice: summary.yesPrice,
     noPrice: summary.noPrice,
     spread: summary.spread,
@@ -227,6 +228,12 @@ function buildGroupedRow(markets: PredictionMarketSummary[]): PredictionGroupedL
     if (latestTs == null || marketTs > latestTs) return market.updatedAt;
     return latest;
   }, representative.updatedAt);
+  const newestCreatedAt = sortedMarkets.reduce<string | null>((newest, market) => {
+    const marketTs = coerceTimestamp(market.createdAt);
+    if (marketTs == null) return newest;
+    const newestTs = coerceTimestamp(newest);
+    return newestTs == null || marketTs > newestTs ? market.createdAt! : newest;
+  }, null);
   const earliestEndsAt = sortedMarkets.reduce<string | null>((earliest, market) => {
     const earliestTs = coerceTimestamp(earliest);
     const marketTs = coerceTimestamp(market.endsAt);
@@ -255,6 +262,7 @@ function buildGroupedRow(markets: PredictionMarketSummary[]): PredictionGroupedL
     description: representative.description,
     endsAt: earliestEndsAt,
     updatedAt: latestUpdatedAt,
+    createdAt: newestCreatedAt,
     yesPrice: representative.yesPrice,
     noPrice: representative.noPrice,
     spread: focusMarket.spread,

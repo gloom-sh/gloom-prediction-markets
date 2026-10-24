@@ -71,6 +71,7 @@ function row(
     description: "",
     endsAt: null,
     updatedAt: null,
+    createdAt: null,
     yesPrice: null,
     noPrice: null,
     spread: null,
