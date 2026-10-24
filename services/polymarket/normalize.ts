@@ -124,6 +124,7 @@ export function normalizePolymarketMarket(
     // market was created or its event started is no refresh: its prices are as of the request.
     updatedAt: record.updatedAt ?? event?.updatedAt ?? null,
     refreshedAt: record.updatedAt ?? event?.updatedAt ?? null,
+    createdAt: record.createdAt ?? event?.startDate ?? null,
     yesPrice,
     noPrice,
     yesBid: record.bestBid ?? null,

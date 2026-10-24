@@ -59,6 +59,8 @@ export interface PredictionMarketSummary {
    * request (Kalshi), and never the day the market opened.
    */
   refreshedAt?: string | null;
+  /** When the market was listed (Polymarket's record, else its event's start), which the New tab sorts by. */
+  createdAt?: string | null;
   yesPrice: number | null;
   noPrice: number | null;
   yesBid: number | null;
@@ -184,6 +186,8 @@ interface PredictionListRowBase {
   description: string;
   endsAt: string | null;
   updatedAt: string | null;
+  /** The newest listing among the row's markets, where the venue says when. */
+  createdAt: string | null;
   yesPrice: number | null;
   noPrice: number | null;
   spread: number | null;

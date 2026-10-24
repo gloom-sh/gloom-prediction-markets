@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { sortPredictionOutcomeMarkets } from "../outcome-order";
 import { buildPredictionListRows, flattenPredictionListRows } from "../rows";
-import { sortPredictionMarkets } from "../metrics";
+import { PREDICTION_COLUMN_DEFS } from "../columns";
+import { getDefaultPredictionSort, getPredictionColumnValue, sortPredictionMarkets } from "../metrics";
 import type { PredictionListRow, PredictionMarketSummary, PredictionSortPreference } from "../types";
 import {
   resolvePredictionEventMarkets,
@@ -84,6 +85,23 @@ test("ending orders by soonest end and new orders by newest updated", () => {
   expect(ordered("ending", { columnId: "vol_24h", direction: "asc" })).toEqual(["soon", "mid", "later"]);
   expect(ordered("new", { columnId: null, direction: "desc" })).toEqual(["mid", "later", "soon"]);
   expect(ordered("top", volumeSort)).toEqual(["soon", "mid", "later"]);
+});
+
+test("new lists the newest markets first, by when they were listed, and a market with none by its last update", () => {
+  // Polymarket search hits: listed on these days, with no refresh time.
+  const hits = buildPredictionListRows([
+    market("listed-feb", { venue: "polymarket", createdAt: "2026-02-03T10:00:00.000Z" }),
+    market("listed-oct", { venue: "polymarket", createdAt: "2026-10-20T10:00:00.000Z" }),
+    market("no-listing", { updatedAt: "2026-09-01T00:00:00.000Z" }),
+    // An event is as new as its newest market.
+    market("event-old", { venue: "polymarket", eventId: "ev", eventLabel: "Event", createdAt: "2026-01-05T00:00:00.000Z" }),
+    market("event-new", { venue: "polymarket", eventId: "ev", eventLabel: "Event", createdAt: "2026-10-01T00:00:00.000Z" }),
+  ]);
+  const order = sortPredictionMarkets(hits, getDefaultPredictionSort("new"));
+  expect(order.map((row) => row.kind === "group" ? row.title : row.key)).toEqual(["listed-oct", "Event", "no-listing", "listed-feb"]);
+  // The listing time is no update: UPDATED stays empty without a refresh time.
+  const updated = PREDICTION_COLUMN_DEFS.find((column) => column.id === "updated")!;
+  expect(getPredictionColumnValue(updated, order[0]!, false).text).toBe("—");
 });
 
 test("an explicit non-default column sort still wins on ending and new", () => {

@@ -163,6 +163,9 @@ function getMarketSortValue(
       return coerceDateValue(row.endsAt);
     case "updated":
       return coerceDateValue(row.updatedAt);
+    // The New tab's order, not a column: newest listed first, a market with no listing time by its last update.
+    case "listed":
+      return coerceDateValue(row.createdAt ?? row.updatedAt);
     case "status":
       return row.status;
     case "event":
@@ -183,7 +186,7 @@ export function getDefaultPredictionSort(
     case "ending":
       return { columnId: "ends", direction: "asc" };
     case "new":
-      return { columnId: "updated", direction: "desc" };
+      return { columnId: "listed", direction: "desc" };
     default:
       return { columnId: "vol_24h", direction: "desc" };
   }

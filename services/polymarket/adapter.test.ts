@@ -194,7 +194,7 @@ describe("polymarket catalog paging", () => {
 });
 
 describe("polymarket refresh times", () => {
-  test("a search hit with no update time is dated by none, not by the day its event started", async () => {
+  test("a search hit with no update time is dated by none, and keeps the day it was listed apart", async () => {
     globalThis.fetch = (async () => json({
       events: [{
         id: "mortgage", title: "Mortgage delinquency rate exceeds 3% by end of Q4 2027?", startDate: "2026-09-28T17:55:56Z",
@@ -203,10 +203,11 @@ describe("polymarket refresh times", () => {
       }],
     })) as unknown as typeof fetch;
     const [hit] = await loadPolymarketSearchHits("mortgage", "all");
-    expect(hit).toMatchObject({ status: "open", updatedAt: null, refreshedAt: null });
+    expect(hit).toMatchObject({ status: "open", updatedAt: null, refreshedAt: null, createdAt: "2026-09-28T17:50:00Z" });
 
-    globalThis.fetch = (async () => json([{ ...polymarketEvent("browse", [{ id: "m-2", volume: 10 }]), updatedAt: "2026-10-23T21:50:53Z" }])) as unknown as typeof fetch;
+    globalThis.fetch = (async () => json([{ ...polymarketEvent("browse", [{ id: "m-2", volume: 10 }]), updatedAt: "2026-10-23T21:50:53Z", startDate: "2026-10-01T12:00:00Z" }])) as unknown as typeof fetch;
     const [browsed] = await loadPolymarketCatalog("", "all", { limit: 10 });
-    expect(browsed).toMatchObject({ updatedAt: "2026-10-23T21:50:53Z", refreshedAt: "2026-10-23T21:50:53Z" });
+    // With no listing time of its own, a market is as new as its event.
+    expect(browsed).toMatchObject({ updatedAt: "2026-10-23T21:50:53Z", refreshedAt: "2026-10-23T21:50:53Z", createdAt: "2026-10-01T12:00:00Z" });
   });
 });
