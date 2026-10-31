@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { act, createElement } from "react";
 import * as gloomberbReact from "gloomberb/react";
-import { testRender } from "gloomberb/test-support";
+import { MemoryPluginPersistence, testRender } from "gloomberb/test-support";
+import { attachPredictionMarketsPersistence, resetPredictionMarketsPersistence } from "../services/fetch";
 import type { PredictionMarketSummary } from "../types";
 
 let latestRefresh: (() => void) | null = null;
@@ -21,10 +22,34 @@ const {
 } = await import("./catalog");
 
 const originalFetch = globalThis.fetch;
+let rendered: Awaited<ReturnType<typeof testRender>> | undefined;
+let unexpectedRequests: string[] = [];
 
-afterEach(() => {
+beforeEach(() => {
+  // The adapters share whole-venue cache keys across categories and searches.
+  // Never inherit a fresh catalog (or its clock) from another test.
+  setSystemTime(new Date("2026-10-24T12:00:00Z"));
+  attachPredictionMarketsPersistence(new MemoryPluginPersistence());
+  unexpectedRequests = [];
+  globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+    unexpectedRequests.push(requestUrl(input));
+    throw new Error("Catalog tests must install a fetch fixture.");
+  }) as typeof fetch;
+});
+
+async function destroyRendered(): Promise<void> {
+  const current = rendered;
+  rendered = undefined;
+  if (current) await act(async () => current.renderer.destroy());
+}
+
+afterEach(async () => {
+  await destroyRendered();
   globalThis.fetch = originalFetch;
   latestRefresh = null;
+  resetPredictionMarketsPersistence();
+  setSystemTime();
+  expect(unexpectedRequests).toEqual([]);
 });
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -184,12 +209,14 @@ describe("catalog browse", () => {
       });
       return null;
     }
-    const rendered = await testRender(createElement(Harness), { width: 20, height: 4 });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
-    rendered.renderer.destroy();
-    return hostsOf(urls);
+    try {
+      await act(async () => {
+        rendered = await testRender(createElement(Harness), { width: 20, height: 4 });
+      });
+      return hostsOf(urls);
+    } finally {
+      await destroyRendered();
+    }
   }
 
   test("All loads Polymarket and Kalshi, and a picked venue loads only itself", async () => {
@@ -215,6 +242,7 @@ describe("aborted extra catalog loads", () => {
       catalogLoadCount: 0,
       allMarkets: [],
     };
+    const paints: Array<typeof latest> = [];
     function Harness() {
       const data = usePredictionCatalogData({
         categoryId: "macro",
@@ -225,25 +253,39 @@ describe("aborted extra catalog loads", () => {
       });
       latest.catalogLoadCount = data.catalogLoadCount;
       latest.allMarkets = data.allMarkets;
+      paints.push({ ...latest });
       return null;
     }
 
-    const rendered = await testRender(createElement(Harness), { width: 20, height: 4 });
-    expect(started).toBeGreaterThan(0);
-    expect(latest.catalogLoadCount).toBeGreaterThan(0);
-    expect(latest.allMarkets).toEqual([]);
+    try {
+      await act(async () => {
+        rendered = await testRender(createElement(Harness), { width: 20, height: 4 });
+      });
+      expect(started).toBeGreaterThan(0);
+      expect(paints[0]).toEqual({ catalogLoadCount: 1, allMarkets: [] });
+      expect(latest.catalogLoadCount).toBeGreaterThan(0);
+      expect(latest.allMarkets).toEqual([]);
 
-    await act(async () => {
-      latestRefresh?.();
-    });
-    // The refresh joins the venue download already in flight.
-    expect(started).toBe(1);
+      expect(latestRefresh).not.toBeNull();
+      await act(async () => {
+        latestRefresh!();
+      });
+      // The refresh aborts the old waiter and joins the same venue download.
+      expect(started).toBe(1);
+      expect(latest.catalogLoadCount).toBe(1);
 
-    await act(async () => {
-      release();
-      await gate;
-    });
-    expect(latest.catalogLoadCount).toBe(0);
-    rendered.renderer.destroy();
+      await act(async () => {
+        release();
+        await gate;
+      });
+      expect(latest.catalogLoadCount).toBe(0);
+    } finally {
+      // Release the shared download even if an assertion fails, before teardown
+      // restores fetch and the next test installs a new persistence instance.
+      await act(async () => {
+        release();
+        await gate;
+      });
+    }
   });
 });

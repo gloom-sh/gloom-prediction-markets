@@ -317,6 +317,16 @@ describe("prediction markets pane interactions", () => {
       harnessStateRef.current?.paneState[TEST_PANE_ID]?.pluginState?.[
         "prediction-markets"
       ]?.searchQuery ?? "";
+    const typeCharacter = async (character: string) => {
+      await act(async () => {
+        await testSetup!.mockInput.typeText(character);
+      });
+      // The search bar publishes its draft on a zero-delay debounce timer
+      // after this commit; rendering frames alone does not advance timers.
+      await act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+    };
 
     const frame = testSetup.captureCharFrame();
     expect(frame).toContain("/ search markets");
@@ -325,9 +335,7 @@ describe("prediction markets pane interactions", () => {
     await flushFrames(testSetup);
 
     // The search field owns the keyboard: typing lands in the query.
-    await act(async () => {
-      await testSetup!.mockInput.typeText("x");
-    });
+    await typeCharacter("x");
     await flushFrames(testSetup);
     expect(searchQuery()).toBe("x");
 
@@ -339,9 +347,7 @@ describe("prediction markets pane interactions", () => {
     await flushFrames(testSetup);
 
     // Back on the table, keys no longer reach the query.
-    await act(async () => {
-      await testSetup!.mockInput.typeText("j");
-    });
+    await typeCharacter("j");
     await flushFrames(testSetup);
     expect(searchQuery()).toBe("x");
   });
