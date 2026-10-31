@@ -1,3 +1,4 @@
+import { getCurrentPluginTarget } from "gloomberb/utils";
 import { categoryForPredictionQuery, getKalshiCategoryNames } from "../../categories";
 import type { PredictionCategoryId, PredictionMarketSummary } from "../../types";
 import { fetchJson, loadCachedPredictionResource, parseFloatSafe, PREDICTION_CACHE_POLICIES } from "../fetch";
@@ -5,6 +6,7 @@ import { normalizeKalshiCatalog } from "./normalize";
 import type { KalshiEventResponse, KalshiEventsResponse } from "./types";
 
 const SERIES_MATCH_LIMIT = 8;
+export const KALSHI_SERIES_SEARCH_PAGE_SIZE = 10;
 
 interface KalshiSeriesListItem {
   ticker?: string;
@@ -16,6 +18,17 @@ interface KalshiSeriesListItem {
 
 interface KalshiSeriesListResponse {
   series?: KalshiSeriesListItem[];
+}
+
+interface KalshiSeriesSearchResponse {
+  current_page: Array<{
+    series_ticker?: string;
+    series_title?: string;
+    category?: string;
+    tags?: string[] | null;
+    total_series_volume?: number;
+  }>;
+  next_cursor?: string;
 }
 
 export interface RankedKalshiSeries {
@@ -121,6 +134,50 @@ async function loadKalshiSeriesList(
   return series;
 }
 
+export async function loadKalshiPagedSeriesSearch(
+  query: string,
+  signal?: AbortSignal,
+): Promise<KalshiSeriesListItem[]> {
+  return loadCachedPredictionResource(
+    "catalog",
+    `kalshi:series-search:${query.trim().toLowerCase()}`,
+    async () => {
+      // The trade API's /series ignores limit/cursor, and even Sports alone
+      // exceeds the web proxy cap. The public search API pages across categories.
+      const series = new Map<string, KalshiSeriesListItem>();
+      const cursors = new Set<string>();
+      let cursor = "";
+      for (;;) {
+        signal?.throwIfAborted();
+        const url = new URL("https://api.elections.kalshi.com/v1/search/series");
+        url.searchParams.set("query", query);
+        url.searchParams.set("page_size", String(KALSHI_SERIES_SEARCH_PAGE_SIZE));
+        if (cursor) url.searchParams.set("cursor", cursor);
+        const page = await fetchJson<KalshiSeriesSearchResponse>(url.toString(), signal);
+        signal?.throwIfAborted();
+        if (!Array.isArray(page.current_page)) throw new Error("Invalid Kalshi series search page.");
+        for (const item of page.current_page) {
+          const ticker = item.series_ticker?.trim();
+          if (!ticker || series.has(ticker)) continue;
+          series.set(ticker, {
+            ticker,
+            title: item.series_title,
+            category: item.category,
+            tags: item.tags,
+            volume_fp: String(item.total_series_volume ?? 0),
+          });
+        }
+        const next = page.next_cursor?.trim() ?? "";
+        if (!next) return [...series.values()];
+        if (cursors.has(next)) throw new Error("Kalshi series search repeated a cursor.");
+        cursors.add(next);
+        cursor = next;
+      }
+    },
+    PREDICTION_CACHE_POLICIES.catalog,
+  );
+}
+
 async function loadSeriesEvents(
   seriesTicker: string,
   categoryId: PredictionCategoryId,
@@ -201,7 +258,11 @@ export async function streamKalshiSeriesSearch(
   const rankQuery = eventTicker?.split("-")[0] ?? seriesTicker ?? query;
   let seriesList: KalshiSeriesListItem[];
   try {
-    seriesList = await loadKalshiSeriesList(searchCategory, signal);
+    // The discovery index can omit series that the full list exposes. Preserve
+    // the full-list behavior on targets that can download it.
+    seriesList = getCurrentPluginTarget() === "web"
+      ? await loadKalshiPagedSeriesSearch(rankQuery, signal)
+      : await loadKalshiSeriesList(searchCategory, signal);
   } catch {
     // Ticker and link lookups above already published; the list only adds name matches.
     return emitted;

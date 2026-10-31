@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MemoryPluginPersistence } from "gloomberb/test-support";
 import { attachPredictionMarketsPersistence } from "../fetch";
-import { kalshiEventTickerFromQuery, rankKalshiSeries, streamKalshiSeriesSearch } from "./series-search";
+import { KALSHI_SERIES_SEARCH_PAGE_SIZE, kalshiEventTickerFromQuery, loadKalshiPagedSeriesSearch, rankKalshiSeries, streamKalshiSeriesSearch } from "./series-search";
 
 describe("rankKalshiSeries", () => {
   test("ranks ticker matches by volume and keeps the Fed series for a one-word query", () => {
@@ -49,6 +49,93 @@ function kalshiMarket(ticker: string, title: string) {
     yes_ask_dollars: "0.49",
   };
 }
+
+describe("loadKalshiPagedSeriesSearch", () => {
+  test("pages all categories, deduplicates series, and ranks matches from later pages", async () => {
+    const searches: URL[] = [];
+    const item = (ticker: string, volume: number, category = "Sports") => ({
+      series_ticker: ticker,
+      series_title: "Championship winner",
+      total_series_volume: volume,
+      category,
+      tags: null,
+    });
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (url.pathname === "/v1/search/series") {
+        searches.push(url);
+        const cursor = url.searchParams.get("cursor");
+        if (cursor === "second/+==") {
+          // Even an empty page can carry a continuation token.
+          return jsonResponse({ current_page: [], next_cursor: "third" });
+        }
+        if (cursor === "third") {
+          return jsonResponse({
+            current_page: [item("SPORT0", 1), item("NEW", 100, "New category")],
+          });
+        }
+        return jsonResponse({
+          current_page: Array.from({ length: 8 }, (_, i) => item(`SPORT${i}`, i + 1)),
+          next_cursor: "second/+==",
+        });
+      }
+      return jsonResponse({ events: [] });
+    }) as typeof fetch;
+
+    const series = await loadKalshiPagedSeriesSearch("championship", new AbortController().signal);
+    expect(series).toHaveLength(9);
+    expect(searches).toHaveLength(3);
+    expect(searches.map((url) => url.searchParams.get("cursor"))).toEqual([null, "second/+==", "third"]);
+    for (const url of searches) {
+      expect(url.searchParams.get("page_size")).toBe(String(KALSHI_SERIES_SEARCH_PAGE_SIZE));
+      expect(url.searchParams.get("query")).toBe("championship");
+      expect(url.searchParams.has("category")).toBe(false);
+    }
+    expect(rankKalshiSeries(series, "championship").map((match) => match.ticker)).toEqual(["NEW", "SPORT7", "SPORT6", "SPORT5", "SPORT4", "SPORT3", "SPORT2", "SPORT1"]);
+
+    // Only a complete traversal is cached, and it is specific to the query.
+    await loadKalshiPagedSeriesSearch("championship", new AbortController().signal);
+    expect(searches).toHaveLength(3);
+    await loadKalshiPagedSeriesSearch("winner", new AbortController().signal);
+    expect(searches).toHaveLength(6);
+  });
+
+  test.each(["failure", "cycle", "invalid"])("does not cache a partial index after a paging %s", async (failure) => {
+    const searches: Array<string | null> = [];
+    let fail = true;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(requestUrl(input));
+      if (url.pathname !== "/v1/search/series") return jsonResponse({ events: [] });
+      const cursor = url.searchParams.get("cursor");
+      searches.push(cursor);
+      if (fail && cursor) {
+        if (failure === "failure") return new Response("missing", { status: 404 });
+        if (failure === "invalid") return jsonResponse({});
+        return jsonResponse({ current_page: [], next_cursor: "next" });
+      }
+      return jsonResponse({ current_page: [], next_cursor: fail ? "next" : "" });
+    }) as typeof fetch;
+    await expect(loadKalshiPagedSeriesSearch("decision", new AbortController().signal)).rejects.toThrow();
+    expect(searches).toEqual([null, "next"]);
+    fail = false;
+    await loadKalshiPagedSeriesSearch("decision", new AbortController().signal);
+    expect(searches).toEqual([null, "next", null]);
+  });
+
+  test("cancellation between pages stops the traversal without caching a partial index", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL) => {
+      calls += 1;
+      if (calls === 1) controller.abort();
+      return jsonResponse({ current_page: [], next_cursor: calls === 1 ? "next" : "" });
+    }) as typeof fetch;
+    await expect(loadKalshiPagedSeriesSearch("decision", controller.signal)).rejects.toThrow();
+    expect(calls).toBe(1);
+    await loadKalshiPagedSeriesSearch("decision", new AbortController().signal);
+    expect(calls).toBe(2);
+  });
+});
 
 describe("streamKalshiSeriesSearch", () => {
   test("loads the event ticker from a pasted Kalshi URL", async () => {
