@@ -219,6 +219,13 @@ async function loadEventByTicker(
   }], "", categoryId);
 }
 
+/**
+ * The Kalshi search behind the PM pane and the PM function: a pasted event or
+ * series, then the series whose ticker, title or tags hold every word of the
+ * query, ranked by volume, with their open events. The pane shows each batch as
+ * it arrives (`onMarkets`); `searchKalshiMarkets` collects them for a reader
+ * that answers once. Resolves with how many markets it published.
+ */
 export async function streamKalshiSeriesSearch(
   query: string,
   categoryId: PredictionCategoryId,
@@ -278,4 +285,17 @@ export async function streamKalshiSeriesSearch(
     }
   }
   return emitted;
+}
+
+/** Every market `streamKalshiSeriesSearch` finds for the query, once each, in the order it found them. */
+export async function searchKalshiMarkets(
+  query: string,
+  categoryId: PredictionCategoryId,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<PredictionMarketSummary[]> {
+  const found = new Map<string, PredictionMarketSummary>();
+  await streamKalshiSeriesSearch(query, categoryId, signal, (markets) => {
+    for (const market of markets) if (!found.has(market.key)) found.set(market.key, market);
+  });
+  return [...found.values()];
 }

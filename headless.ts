@@ -12,6 +12,7 @@ import {
 import { parsePredictionSearchShortcut } from "./navigation";
 import { buildPredictionListRows } from "./rows";
 import { loadKalshiCatalog } from "./services/kalshi/adapter";
+import { searchKalshiMarkets } from "./services/kalshi/series-search";
 import { loadPolymarketCatalog } from "./services/polymarket/adapter";
 import { PREDICTION_VENUE_LABELS, venueInScope } from "./venues";
 import type {
@@ -45,8 +46,28 @@ export interface PredictionMarketsHeadlessDependencies {
     query: string,
     category: PredictionCategoryId,
     limit: number,
+    signal?: AbortSignal,
   ): Promise<PredictionMarketSummary[]>;
   now(): Date;
+}
+
+/**
+ * Kalshi's newest open events, and for a query the markets the PM pane's own
+ * Kalshi search finds too: the newest events rarely hold what was asked for
+ * (none of the first 200 is a Senate race), so a report or custom view
+ * that read only them listed nothing the pane lists.
+ */
+async function loadKalshiMarkets(
+  query: string,
+  category: PredictionCategoryId,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<PredictionMarketSummary[]> {
+  const newest = loadKalshiCatalog(query, category, { limit, signal });
+  if (!query.trim()) return await newest;
+  const [browsed, found] = await Promise.all([newest, searchKalshiMarkets(query, category, signal)]);
+  const listed = new Set(browsed.map((market) => market.key));
+  return [...browsed, ...found.filter((market) => !listed.has(market.key))];
 }
 
 const defaultDependencies: PredictionMarketsHeadlessDependencies = {
@@ -55,11 +76,7 @@ const defaultDependencies: PredictionMarketsHeadlessDependencies = {
     category,
     { limit },
   ),
-  loadKalshi: (query, category, limit) => loadKalshiCatalog(
-    query,
-    category,
-    { limit },
-  ),
+  loadKalshi: loadKalshiMarkets,
   now: () => new Date(),
 };
 
@@ -267,7 +284,7 @@ export function createPredictionMarketsHeadless(
         ? `Prediction Markets | ${selection.query}`
         : "Prediction Markets";
     },
-    async load(args) {
+    async load(args, context) {
       const selection = selectionFor(args);
       const requested: Array<{
         venue: "polymarket" | "kalshi";
@@ -282,7 +299,7 @@ export function createPredictionMarketsHeadless(
       if (venueInScope("kalshi", selection.venue)) {
         requested.push({
           venue: "kalshi",
-          load: dependencies.loadKalshi(selection.query, selection.category, 200),
+          load: dependencies.loadKalshi(selection.query, selection.category, 200, context?.signal),
         });
       }
       const settled = await Promise.allSettled(requested.map((request) => request.load));
