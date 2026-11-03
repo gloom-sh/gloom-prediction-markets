@@ -1,9 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { MemoryPluginPersistence } from "gloomberb/test-support";
 import type { HeadlessPaneContext, HeadlessPaneLoadArgs } from "gloomberb/types/plugin";
 import {
   createPredictionMarketsHeadless,
   type PredictionMarketsHeadlessDependencies,
 } from "./headless";
+import { attachPredictionMarketsPersistence } from "./services/fetch";
+import { kalshiSenateSearchFixture } from "./services/kalshi/fixture";
 import type { PredictionMarketSummary, PredictionVenue } from "./types";
 
 function market(
@@ -162,5 +165,38 @@ describe("prediction markets headless", () => {
       status: "not refreshed since 28 Sep 2026", updatedAt: "2026-09-28T17:55:56.000Z",
     });
     expect(all.notes).toBeUndefined();
+  });
+});
+
+describe("prediction markets headless Kalshi search", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("a query finds the markets the pane's Kalshi search finds, beyond the newest events", async () => {
+    attachPredictionMarketsPersistence(new MemoryPluginPersistence());
+    const seriesRead: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
+      if (url.pathname === "/trade-api/v2/series") return json(kalshiSenateSearchFixture.seriesList);
+      if (url.pathname !== "/trade-api/v2/events") return new Response("not recorded", { status: 404 });
+      const series = url.searchParams.get("series_ticker");
+      if (!series) return json(kalshiSenateSearchFixture.newestEvents);
+      seriesRead.push(series);
+      return json(kalshiSenateSearchFixture.seriesEvents[series] ?? { events: [], cursor: "" });
+    }) as typeof fetch;
+
+    const result = await createPredictionMarketsHeadless().load(args("senate", { venue: "kalshi" }), context);
+
+    // The House series does not hold the word, so it is not read.
+    expect(seriesRead).toEqual(["SENATETX", "CONTROLS"]);
+    expect(result.rows.map((row) => [row.key, row.target])).toEqual([
+      ["group:kalshi:event:SENATETX-26", "James Talarico"],
+      ["group:kalshi:event:CONTROLS-2026", "Democratic Party"],
+      ["group:kalshi:event:CONTROLS-2028", "Democratic party"],
+    ]);
+    expect(result.errors).toBeUndefined();
   });
 });
